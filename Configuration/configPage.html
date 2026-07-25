@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Tessera Support Configuration</title>
+</head>
+<body>
+    <div id="tesseraConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+        <div class="content-primary">
+            <form id="tesseraConfigForm">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">⚡ Tessera — Community Support Configuration</h2>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="txtTesseraServerUrl">Tessera Sidecar API URL:</label>
+                    <input id="txtTesseraServerUrl" name="txtTesseraServerUrl" type="text" is="emby-input" required />
+                    <div class="fieldDescription">The public URL of your running Tessera sidecar (e.g. http://localhost:7878 or https://tessera.yourdomain.com).</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="txtDefaultRate">Default Streaming Rate per Second (USDC):</label>
+                    <input id="txtDefaultRate" name="txtDefaultRate" type="number" step="0.000001" is="emby-input" required />
+                    <div class="fieldDescription">Default per-second contribution rate applied when a viewer supports your server (e.g. 0.0001 = $0.0001 USDC/sec).</div>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withLayout">
+                    <label>
+                        <input id="chkEnablePaywallOverlay" type="checkbox" is="emby-checkbox" />
+                        <span>Enable Native UI Injection (⚡ Buttons & Native Dialogs)</span>
+                    </label>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withLayout">
+                    <label>
+                        <input id="chkEnableTipping" type="checkbox" is="emby-checkbox" />
+                        <span>Enable Creator Tipping Buttons on Free Content</span>
+                    </label>
+                </div>
+
+                <div>
+                    <button id="btnSaveConfig" type="submit" is="emby-button" class="raised button-submit block">
+                        <span>Save Configuration</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <script type="text/javascript">
+            (function () {
+                const pluginId = 'f94d1b82-7e4a-4c28-9d10-8b43f01c9b88';
+
+                document.querySelector('#tesseraConfigPage').addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        document.querySelector('#txtTesseraServerUrl').value = config.TesseraServerUrl || 'http://localhost:7878';
+                        document.querySelector('#txtDefaultRate').value = config.DefaultRatePerSecond || 0.0001;
+                        document.querySelector('#chkEnablePaywallOverlay').checked = config.EnablePaywallOverlay !== false;
+                        document.querySelector('#chkEnableTipping').checked = config.EnableTipping !== false;
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+                document.querySelector('#tesseraConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.TesseraServerUrl = document.querySelector('#txtTesseraServerUrl').value;
+                        config.DefaultRatePerSecond = parseFloat(document.querySelector('#txtDefaultRate').value);
+                        config.EnablePaywallOverlay = document.querySelector('#chkEnablePaywallOverlay').checked;
+                        config.EnableTipping = document.querySelector('#chkEnableTipping').checked;
+
+                        ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
+                    });
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>

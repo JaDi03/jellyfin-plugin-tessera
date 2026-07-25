@@ -1,0 +1,51 @@
+name: Build & Release Jellyfin Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8.0 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build Release Binary
+        run: dotnet build -c Release
+
+      - name: Package Plugin Zip
+        run: |
+          mkdir -p package
+          cp bin/Release/net8.0/Jellyfin.Plugin.Tessera.dll package/
+          cd package
+          zip -r ../Jellyfin.Plugin.Tessera.zip .
+
+      - name: Calculate SHA256 Checksum
+        id: checksum
+        run: |
+          CHECKSUM=$(sha256sum Jellyfin.Plugin.Tessera.zip | awk '{ print $1 }')
+          echo "SHA256=$CHECKSUM" >> $GITHUB_ENV
+          echo "Calculated SHA256: $CHECKSUM"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: Jellyfin.Plugin.Tessera.zip
+          body: |
+            Automated release build for Jellyfin Tessera Plugin.
+            SHA256 Checksum: `${{ env.SHA256 }}`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
