@@ -26,6 +26,7 @@ namespace Jellyfin.Plugin.Tessera
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
+            CleanupOldVersions(applicationPaths);
             InjectClientScript(applicationPaths);
         }
 
@@ -39,6 +40,36 @@ namespace Jellyfin.Plugin.Tessera
                     EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
                 }
             };
+        }
+
+        private void CleanupOldVersions(IApplicationPaths applicationPaths)
+        {
+            try
+            {
+                var pluginsDir = Path.Combine(applicationPaths.ProgramDataPath, "plugins");
+                if (!Directory.Exists(pluginsDir)) return;
+
+                var currentVersion = new Version("1.0.4.0");
+                var directories = Directory.GetDirectories(pluginsDir, "Tessera_*");
+
+                foreach (var dir in directories)
+                {
+                    var dirName = Path.GetFileName(dir);
+                    var versionStr = dirName.Replace("Tessera_", "");
+                    if (Version.TryParse(versionStr, out var ver))
+                    {
+                        if (ver < currentVersion)
+                        {
+                            Console.WriteLine($"[Tessera] Auto-cleaning old plugin version folder: {dir}");
+                            Directory.Delete(dir, true);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tessera] Error cleaning up old versions: {ex.Message}");
+            }
         }
 
         private void InjectClientScript(IApplicationPaths applicationPaths)
@@ -95,6 +126,10 @@ namespace Jellyfin.Plugin.Tessera
                 {
                     Console.WriteLine("[Tessera] Client script already injected in index.html.");
                 }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Console.WriteLine("[Tessera] ERROR: Write permission to index.html denied. To automate in-app UI script injection, please run: docker exec -u root jellyfin chmod 666 /jellyfin/jellyfin-web/index.html");
             }
             catch (Exception ex)
             {
