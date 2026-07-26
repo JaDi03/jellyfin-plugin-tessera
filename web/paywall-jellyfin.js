@@ -11,15 +11,94 @@
 
     const TESSERA_API_URL = window.TESSERA_URL || 'http://localhost:7878';
     let currentSession = null;
+    let currentUserToken = null;
+    let currentWalletId = null;
+
+    function getJellyfinUserId() {
+        if (window.ApiClient) return window.ApiClient.getCurrentUserId();
+        return 'unknown_user';
+    }
+
+    async function ensureCircleSdk() {
+        return new Promise((resolve, reject) => {
+            if (document.getElementById('circle-sdk-script')) return resolve(true);
+            const script = document.createElement('script');
+            script.id = 'circle-sdk-script';
+            script.src = 'https://s3.amazonaws.com/circle-web-sdk/W3sPwWebSdk.wasm.js';
+            script.onload = () => resolve(true);
+            script.onerror = () => reject(new Error('Failed to load Circle SDK'));
+            document.head.appendChild(script);
+        });
+    }
+
+    async function initializeWallet(statusElement) {
+        try {
+            statusElement.innerHTML = '<i>Conectando a Tessera API...</i>';
+            const userId = getJellyfinUserId();
+            
+            let res = await fetch(`${TESSERA_API_URL}/api/core/circle/get-token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId })
+            });
+            let data = await res.json();
+            if (!data.userToken) throw new Error('No userToken received');
+            currentUserToken = data.userToken;
+            const appId = data.appId;
+            const encryptionKey = data.encryptionKey;
+
+            statusElement.innerHTML = '<i>Obteniendo Wallet...</i>';
+            res = await fetch(`${TESSERA_API_URL}/api/core/circle/get-wallet`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, userToken: currentUserToken })
+            });
+            data = await res.json();
+
+            if (data.status === 'existing') {
+                currentWalletId = data.walletId;
+                statusElement.innerHTML = `<span style="color: #4caf50; font-weight: bold;">Wallet Conectada:</span> <br/><span style="font-family: monospace; font-size: 0.8rem;">${data.walletAddress}</span>`;
+                return;
+            }
+
+            if (data.status === 'indexing') {
+                statusElement.innerHTML = '<i>Wallet en proceso de creación en Arc Network... espere unos segundos e intente de nuevo.</i>';
+                return;
+            }
+
+            if (data.status === 'needs_creation' && data.challengeId) {
+                statusElement.innerHTML = '<i>Requiere configuración de PIN. Abre el diálogo de Circle.</i>';
+                await ensureCircleSdk();
+                
+                if (window.W3sPwWebSdk) {
+                    const sdk = new window.W3sPwWebSdk();
+                    sdk.setAppSettings({ appId: appId });
+                    sdk.setAuthentication({ userToken: currentUserToken, encryptionKey: encryptionKey });
+                    
+                    sdk.execute(data.challengeId, (error, result) => {
+                        if (error) {
+                            statusElement.innerHTML = `<span style="color: red;">Error: ${error.message}</span>`;
+                        } else {
+                            statusElement.innerHTML = '<i>PIN Configurado. Verificando wallet...</i>';
+                            setTimeout(() => initializeWallet(statusElement), 4000);
+                        }
+                    });
+                } else {
+                    statusElement.innerHTML = `<span style="color: red;">Error: SDK de Circle no cargado.</span>`;
+                }
+            }
+        } catch (err) {
+            console.error('[Tessera] Wallet init error:', err);
+            statusElement.innerHTML = `<span style="color: red;">Error de red al conectar con Tessera.</span>`;
+        }
+    }
 
     /**
      * Inject native ⚡ button into video player OSD control bar
      */
     function injectOSDButton() {
-        const settingsBtn = document.querySelector('.btnVideoOsdSettings') || document.querySelector('.btnFullscreen');
-        if (!settingsBtn) return;
-        const osdControls = settingsBtn.parentNode;
-        if (osdControls.querySelector('.tessera-osd-btn')) return;
+        const osdControls = document.querySelector('.videoOsdBottom .buttons-right');
+        if (!osdControls || osdControls.querySelector('.tessera-osd-btn')) return;
 
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -32,7 +111,7 @@
             openTesseraNativeDialog();
         });
 
-        osdControls.insertBefore(btn, settingsBtn);
+        osdControls.appendChild(btn);
         console.log('[Tessera] Native OSD button injected successfully.');
     }
 
@@ -40,10 +119,8 @@
      * Inject native "Apoyar Creador" button into detail page action buttons
      */
     function injectDetailButton() {
-        const playBtn = document.querySelector('.btnPlay');
-        if (!playBtn) return;
-        const container = playBtn.parentNode;
-        if (container.querySelector('.tessera-detail-btn')) return;
+        const detailButtons = document.querySelector('.detailButtons');
+        if (!detailButtons || detailButtons.querySelector('.tessera-detail-btn')) return;
 
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -56,7 +133,7 @@
             openTesseraNativeDialog();
         });
 
-        container.insertBefore(btn, playBtn.nextSibling);
+        detailButtons.appendChild(btn);
         console.log('[Tessera] Native detail page button injected successfully.');
     }
 
@@ -97,8 +174,9 @@
                         </div>
                     </div>
 
-                    <div id="tesseraWalletStatus" style="font-size: 0.9rem; opacity: 0.7; text-align: center;">
-                        Circle UCW Account Connected (Arc Testnet)
+                    <div id="tesseraWalletStatus" style="font-size: 0.9rem; opacity: 0.7; text-align: center; margin-top: 15px;">
+                        <button id="btnInitWallet" class="raised emby-button">Conectar / Crear Wallet UCW</button>
+                        <div id="walletStatusText" style="margin-top: 10px;"></div>
                     </div>
                 </div>
             </div>
@@ -110,10 +188,20 @@
             dialogWrapper.remove();
         });
 
+        const statusText = dialogWrapper.querySelector('#walletStatusText');
+        dialogWrapper.querySelector('#btnInitWallet').addEventListener('click', function () {
+            this.style.display = 'none';
+            initializeWallet(statusText);
+        });
+
         dialogWrapper.querySelectorAll('.btnTip').forEach(function (btn) {
-            btn.addEventListener('click', function () {
+            btn.addEventListener('click', async function () {
                 const amount = this.getAttribute('data-amount');
-                alert('Propina de $' + amount + ' USDC enviada exitosamente mediante Tessera.');
+                if (!currentWalletId) {
+                    alert('Primero debes conectar tu Wallet.');
+                    return;
+                }
+                alert('Propina de $' + amount + ' iniciada. Implementación de transacción en próxima fase.');
             });
         });
     }
