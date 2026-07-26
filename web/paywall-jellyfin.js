@@ -16,8 +16,10 @@
      * Inject native ⚡ button into video player OSD control bar
      */
     function injectOSDButton() {
-        const osdControls = document.querySelector('.videoOsdBottom .buttons-right');
-        if (!osdControls || osdControls.querySelector('.tessera-osd-btn')) return;
+        const settingsBtn = document.querySelector('.btnVideoOsdSettings') || document.querySelector('.btnFullscreen');
+        if (!settingsBtn) return;
+        const osdControls = settingsBtn.parentNode;
+        if (osdControls.querySelector('.tessera-osd-btn')) return;
 
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -30,7 +32,7 @@
             openTesseraNativeDialog();
         });
 
-        osdControls.appendChild(btn);
+        osdControls.insertBefore(btn, settingsBtn);
         console.log('[Tessera] Native OSD button injected successfully.');
     }
 
@@ -38,8 +40,10 @@
      * Inject native "Apoyar Creador" button into detail page action buttons
      */
     function injectDetailButton() {
-        const detailButtons = document.querySelector('.detailButtons');
-        if (!detailButtons || detailButtons.querySelector('.tessera-detail-btn')) return;
+        const playBtn = document.querySelector('.btnPlay');
+        if (!playBtn) return;
+        const container = playBtn.parentNode;
+        if (container.querySelector('.tessera-detail-btn')) return;
 
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -52,7 +56,7 @@
             openTesseraNativeDialog();
         });
 
-        detailButtons.appendChild(btn);
+        container.insertBefore(btn, playBtn.nextSibling);
         console.log('[Tessera] Native detail page button injected successfully.');
     }
 
