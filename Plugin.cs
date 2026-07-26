@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Collections.Generic;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -25,6 +26,7 @@ namespace Jellyfin.Plugin.Tessera
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
+            InjectClientScript(applicationPaths);
         }
 
         public IEnumerable<PluginPageInfo> GetPages()
@@ -37,6 +39,67 @@ namespace Jellyfin.Plugin.Tessera
                     EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
                 }
             };
+        }
+
+        private void InjectClientScript(IApplicationPaths applicationPaths)
+        {
+            try
+            {
+                var searchPaths = new List<string>
+                {
+                    Environment.GetEnvironmentVariable("JELLYFIN_WEB_DIR") ?? string.Empty,
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "jellyfin-web"),
+                    Path.Combine(applicationPaths.ProgramDataPath, "jellyfin-web"),
+                    "/usr/share/jellyfin/web",
+                    "/jellyfin/jellyfin-web"
+                };
+
+                string? indexPath = null;
+                foreach (var path in searchPaths)
+                {
+                    if (string.IsNullOrEmpty(path)) continue;
+                    var file = Path.Combine(path, "index.html");
+                    if (File.Exists(file))
+                    {
+                        indexPath = file;
+                        break;
+                    }
+                }
+
+                if (indexPath == null)
+                {
+                    Console.WriteLine("[Tessera] Warning: Could not locate Jellyfin web's index.html.");
+                    return;
+                }
+
+                Console.WriteLine($"[Tessera] Found index.html at: {indexPath}");
+
+                string html = File.ReadAllText(indexPath);
+                string scriptTag = "<script src=\"/plugins/tessera/paywall-jellyfin.js\"></script>";
+
+                if (!html.Contains("paywall-jellyfin.js"))
+                {
+                    int bodyCloseIndex = html.LastIndexOf("</body>");
+                    if (bodyCloseIndex != -1)
+                    {
+                        html = html.Insert(bodyCloseIndex, scriptTag + "\n");
+                        File.WriteAllText(indexPath, html);
+                        Console.WriteLine("[Tessera] Successfully injected client script tag into index.html.");
+                    }
+                    else
+                    {
+                        Console.WriteLine("[Tessera] Warning: Could not locate </body> tag in index.html.");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[Tessera] Client script already injected in index.html.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tessera] Error injecting client script: {ex.Message}");
+            }
         }
     }
 }
