@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.5.0",
+        "changelog": "Implement direct wallet creation via Tessera API from the browser.",
+        "targetAbiVersion": "10.9.0.0",
+        "sourceUrl": "https://github.com/JaDi03/jellyfin-plugin-tessera/releases/download/v1.0.5/Jellyfin.Plugin.Tessera.zip",
+        "checksum": "",
+        "timestamp": "2026-07-26T21:45:00Z"
+      },
+      {
         "version": "1.0.4.0",
         "changelog": "Auto-cleanup older plugin directory duplicates on startup and log clear permissions instructions for Docker.",
         "targetAbiVersion": "10.9.0.0",
