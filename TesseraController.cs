@@ -23,7 +23,9 @@ namespace Jellyfin.Plugin.Tessera
                 using (StreamReader reader = new StreamReader(stream))
                 {
                     string content = reader.ReadToEnd();
-                    return Content(content, "application/javascript");
+                    var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
+                    string configHeader = $"window.TESSERA_URL = '{serverUrl}';\n";
+                    return Content(configHeader + content, "application/javascript");
                 }
             }
         }
