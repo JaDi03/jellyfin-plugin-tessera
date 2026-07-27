@@ -97,48 +97,59 @@
      * Inject native ⚡ button into video player OSD control bar
      */
     function injectOSDButton() {
-        const settingsBtn = document.querySelector('.btnVideoOsdSettings') || document.querySelector('.btnFullscreen');
-        if (!settingsBtn) return;
-        const osdControls = settingsBtn.parentNode;
-        if (osdControls.querySelector('.tessera-osd-btn')) return;
+        const settingsBtns = document.querySelectorAll('.btnVideoOsdSettings, .btnFullscreen');
+        settingsBtns.forEach(settingsBtn => {
+            const osdControls = settingsBtn.parentNode;
+            if (!osdControls || osdControls.querySelector('.tessera-osd-btn')) return;
 
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'paper-icon-button-light detailButton tessera-osd-btn';
-        btn.title = 'Tessera ⚡ Streaming & Propinas';
-        btn.innerHTML = '<span class="material-icons" style="color: #ffb300;">bolt</span>';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'paper-icon-button-light detailButton tessera-osd-btn';
+            btn.title = 'Tessera ⚡ Streaming & Propinas';
+            btn.innerHTML = '<span class="material-icons" style="color: #ffb300;">bolt</span>';
 
-        btn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            openTesseraNativeDialog();
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                openTesseraNativeDialog();
+            });
+
+            osdControls.insertBefore(btn, settingsBtn);
+            console.log('[Tessera] Native OSD button injected successfully.');
         });
-
-        osdControls.insertBefore(btn, settingsBtn);
-        console.log('[Tessera] Native OSD button injected successfully.');
     }
 
     /**
      * Inject native "Apoyar Creador" button into detail page action buttons
      */
     function injectDetailButton() {
-        const playBtn = document.querySelector('.btnPlay');
-        if (!playBtn) return;
-        const container = playBtn.parentNode;
-        if (container.querySelector('.tessera-detail-btn')) return;
+        // Find all play buttons to cover both main details and item lists
+        const playBtns = document.querySelectorAll('.btnPlay');
+        
+        playBtns.forEach(playBtn => {
+            const container = playBtn.parentNode;
+            if (!container || container.querySelector('.tessera-detail-btn')) return;
 
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'raised detailButton emby-button tessera-detail-btn';
-        btn.title = 'Apoyar a este creador con Tessera';
-        btn.innerHTML = '<i class="material-icons button-icon button-icon-left" style="color: #ffb300;">bolt</i><span class="button-text">Apoyar Creador</span>';
+            // Only inject in primary detail views or main action containers
+            if (!container.classList.contains('detailButtons') && 
+                !container.classList.contains('itemActionButtons') &&
+                !container.classList.contains('mainDetailButtons')) {
+                return; 
+            }
 
-        btn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            openTesseraNativeDialog();
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'raised detailButton emby-button tessera-detail-btn';
+            btn.title = 'Apoyar a este creador con Tessera';
+            btn.innerHTML = '<i class="material-icons button-icon button-icon-left" style="color: #ffb300;">bolt</i><span class="button-text">Apoyar Creador</span>';
+
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                openTesseraNativeDialog();
+            });
+
+            container.insertBefore(btn, playBtn.nextSibling);
+            console.log('[Tessera] Native detail page button injected successfully.');
         });
-
-        container.insertBefore(btn, playBtn.nextSibling);
-        console.log('[Tessera] Native detail page button injected successfully.');
     }
 
     /**
