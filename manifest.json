@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.8.0",
+        "changelog": "Fix missing UI buttons by iterating all play button containers to avoid hidden list elements anchor bug.",
+        "targetAbiVersion": "10.9.0.0",
+        "sourceUrl": "https://github.com/JaDi03/jellyfin-plugin-tessera/releases/download/v1.0.8/Jellyfin.Plugin.Tessera.zip",
+        "checksum": "89A91982D073741E7B9B35AD55257987",
+        "timestamp": "2026-07-27T17:00:00Z"
+      },
+      {
         "version": "1.0.7.0",
         "changelog": "Fix missing UI buttons by restoring correct DOM selectors for Jellyfin 10.11.11.",
         "targetAbiVersion": "10.9.0.0",
