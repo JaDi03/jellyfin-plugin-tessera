@@ -2,11 +2,19 @@
   {
     "guid": "f94d1b82-7e4a-4c28-9d10-8b43f01c9b88",
     "name": "Tessera",
-    "description": "Voluntary server support through micro-contributions and USDC tipping. No paywalls, no blocked content — just a way for your community to keep your server running.",
-    "overview": "Let your viewers voluntarily support your Jellyfin server. Content stays free — community support is optional.",
+    "description": "Voluntary server support through micro-contributions and USDC tipping. No paywalls, no blocked content \u2014 just a way for your community to keep your server running.",
+    "overview": "Let your viewers voluntarily support your Jellyfin server. Content stays free \u2014 community support is optional.",
     "owner": "Tessera Project",
     "category": "General",
     "versions": [
+      {
+        "version": "1.0.9.0",
+        "changelog": "Automated release for version 1.0.9.0",
+        "targetAbiVersion": "10.9.0.0",
+        "sourceUrl": "https://github.com/JaDi03/jellyfin-plugin-tessera/releases/download/v1.0.9/Jellyfin.Plugin.Tessera.zip",
+        "checksum": "4FA5DA15B8201431CE521DB2E6799D65",
+        "timestamp": "2026-07-27T19:53:46.408557Z"
+      },
       {
         "version": "1.0.8.0",
         "changelog": "Fix missing UI buttons by iterating all play button containers to avoid hidden list elements anchor bug.",
