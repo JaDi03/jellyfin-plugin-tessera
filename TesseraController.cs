@@ -30,12 +30,12 @@ namespace Jellyfin.Plugin.Tessera
             }
         }
 
-        [HttpGet("assets/{filename}")]
-        public async System.Threading.Tasks.Task<IActionResult> GetAsset(string filename)
+        [HttpGet("assets")]
+        public async System.Threading.Tasks.Task<IActionResult> GetAsset([FromQuery] string file)
         {
             var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
             serverUrl = serverUrl.TrimEnd('/');
-            string url = $"{serverUrl}/jellyfin-assets/{filename}";
+            string url = $"{serverUrl}/jellyfin-assets/{file}";
 
             using (System.Net.Http.HttpClient client = new System.Net.Http.HttpClient())
             {
@@ -48,11 +48,11 @@ namespace Jellyfin.Plugin.Tessera
                     }
 
                     string contentType = "application/octet-stream";
-                    if (filename.EndsWith(".js")) contentType = "application/javascript; charset=utf-8";
-                    else if (filename.EndsWith(".css")) contentType = "text/css; charset=utf-8";
-                    else if (filename.EndsWith(".svg")) contentType = "image/svg+xml";
-                    else if (filename.EndsWith(".png")) contentType = "image/png";
-                    else if (filename.EndsWith(".ico")) contentType = "image/x-icon";
+                    if (file.EndsWith(".js")) contentType = "application/javascript; charset=utf-8";
+                    else if (file.EndsWith(".css")) contentType = "text/css; charset=utf-8";
+                    else if (file.EndsWith(".svg")) contentType = "image/svg+xml";
+                    else if (file.EndsWith(".png")) contentType = "image/png";
+                    else if (file.EndsWith(".ico")) contentType = "image/x-icon";
 
                     var stream = await response.Content.ReadAsStreamAsync();
                     return File(stream, contentType);

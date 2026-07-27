@@ -12,11 +12,11 @@
     // 1. Inject Tessera paywall assets via plugin relay (browser never contacts sidecar directly)
     const cssLink = document.createElement('link');
     cssLink.rel = 'stylesheet';
-    cssLink.href = `${pluginRoute}/assets/paywall.css`;
+    cssLink.href = `${pluginRoute}/assets?file=paywall.css`;
     document.head.appendChild(cssLink);
 
     const script = document.createElement('script');
-    script.src = `${pluginRoute}/assets/paywall.bundle.js?v=1.2.0`;
+    script.src = `${pluginRoute}/assets?file=paywall.bundle.js&v=1.2.0`;
     document.head.appendChild(script);
 
     // Inject SPA styles to prevent paywall from blocking the dashboard
