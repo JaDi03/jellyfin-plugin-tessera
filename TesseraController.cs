@@ -35,7 +35,7 @@ namespace Jellyfin.Plugin.Tessera
         {
             var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
             serverUrl = serverUrl.TrimEnd('/');
-            string url = $"{serverUrl}/peertube-assets/{filename}";
+            string url = $"{serverUrl}/jellyfin-assets/{filename}";
 
             using (System.Net.Http.HttpClient client = new System.Net.Http.HttpClient())
             {
