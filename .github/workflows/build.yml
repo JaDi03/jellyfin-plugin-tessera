@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET 8.0 SDK
         uses: actions/setup-dotnet@v4
@@ -32,12 +34,59 @@ jobs:
           cd package
           zip -r ../Jellyfin.Plugin.Tessera.zip .
 
-      - name: Calculate SHA256 Checksum
+      - name: Calculate Checksums
         id: checksum
         run: |
-          CHECKSUM=$(sha256sum Jellyfin.Plugin.Tessera.zip | awk '{ print $1 }')
-          echo "SHA256=$CHECKSUM" >> $GITHUB_ENV
-          echo "Calculated SHA256: $CHECKSUM"
+          SHA256_SUM=$(sha256sum Jellyfin.Plugin.Tessera.zip | awk '{ print $1 }')
+          MD5_SUM=$(md5sum Jellyfin.Plugin.Tessera.zip | awk '{ print toupper($1) }')
+          echo "SHA256=$SHA256_SUM" >> $GITHUB_ENV
+          echo "MD5=$MD5_SUM" >> $GITHUB_ENV
+          echo "Calculated SHA256: $SHA256_SUM"
+          echo "Calculated MD5: $MD5_SUM"
+
+      - name: Update manifest.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          
+          python3 -c "
+          import json, datetime
+          
+          manifest_path = 'manifest.json'
+          with open(manifest_path, 'r', encoding='utf-8') as f:
+              data = json.load(f)
+              
+          version_str = '${VERSION}'
+          if version_str.count('.') == 2:
+              version_str += '.0'
+              
+          new_entry = {
+              'version': version_str,
+              'changelog': 'Automated release for version ' + version_str,
+              'targetAbiVersion': '10.9.0.0',
+              'sourceUrl': f'https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Jellyfin.Plugin.Tessera.zip',
+              'checksum': '${{ env.MD5 }}',
+              'timestamp': datetime.datetime.utcnow().isoformat() + 'Z'
+          }
+          
+          if not any(v['version'] == version_str for v in data[0]['versions']):
+              data[0]['versions'].insert(0, new_entry)
+              with open(manifest_path, 'w', encoding='utf-8') as f:
+                  json.dump(data, f, indent=2)
+              print(f'Updated manifest with version {version_str}')
+          else:
+              print('Version already exists in manifest, skipping append.')
+          "
+
+      - name: Commit and Push manifest
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add manifest.json
+          git commit -m "chore: auto-update manifest.json for release ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
+          git pull origin main --rebase
+          git push origin HEAD:main
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -47,5 +96,6 @@ jobs:
           body: |
             Automated release build for Jellyfin Tessera Plugin.
             SHA256 Checksum: `${{ env.SHA256 }}`
+            MD5 Checksum: `${{ env.MD5 }}`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
