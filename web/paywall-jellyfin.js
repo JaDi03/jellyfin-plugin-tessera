@@ -52,12 +52,21 @@
      */
     async function ensureCircleSdk() {
         return new Promise((resolve, reject) => {
+            if (window.W3sPwWebSdk || window.W3SSdk || window.CircleW3SSdk) return resolve(true);
             if (document.getElementById('circle-sdk-script')) return resolve(true);
+
             const script = document.createElement('script');
             script.id = 'circle-sdk-script';
-            script.src = 'https://s3.amazonaws.com/circle-web-sdk/W3sPwWebSdk.wasm.js';
+            script.src = `${pluginRoute}/assets?file=paywall.bundle.js`;
             script.onload = () => resolve(true);
-            script.onerror = () => reject(new Error('Failed to load Circle SDK'));
+            script.onerror = () => {
+                const cdnScript = document.createElement('script');
+                cdnScript.id = 'circle-sdk-script-cdn';
+                cdnScript.src = 'https://cdn.jsdelivr.net/npm/@circle-fin/w3s-pw-web-sdk@1.0.8/dist/w3s-pw-web-sdk.standalone.js';
+                cdnScript.onload = () => resolve(true);
+                cdnScript.onerror = () => reject(new Error('Failed to load Circle SDK from local relay and CDN'));
+                document.head.appendChild(cdnScript);
+            };
             document.head.appendChild(script);
         });
     }
@@ -104,11 +113,15 @@
                 statusElement.innerHTML = '<i>Abriendo diálogo de seguridad Circle para PIN...</i>';
                 await ensureCircleSdk();
 
-                if (window.W3sPwWebSdk) {
-                    const sdk = new window.W3sPwWebSdk();
-                    sdk.setAppSettings({ appId: appId });
-                    sdk.setAuthentication({ userToken: currentUserToken, encryptionKey: encryptionKey });
-
+                const SdkClass = window.W3sPwWebSdk || window.W3SSdk || window.CircleW3SSdk;
+                if (SdkClass) {
+                    const sdk = new SdkClass();
+                    if (typeof sdk.setAppSettings === 'function') {
+                        sdk.setAppSettings({ appId: appId });
+                    }
+                    if (typeof sdk.setAuthentication === 'function') {
+                        sdk.setAuthentication({ userToken: currentUserToken, encryptionKey: encryptionKey });
+                    }
                     sdk.execute(data.challengeId, (error, result) => {
                         if (error) {
                             statusElement.innerHTML = `<span style="color: #f44336;">Error Circle: ${error.message}</span>`;
