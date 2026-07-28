@@ -9,6 +9,14 @@
 
     const pluginRoute = '/plugins/tessera';
 
+    // 1. Auto-inject Tessera paywall bundle immediately on page startup for instant sidecar log initialization
+    if (!document.getElementById('tessera-paywall-bundle')) {
+        const bundleScript = document.createElement('script');
+        bundleScript.id = 'tessera-paywall-bundle';
+        bundleScript.src = `${pluginRoute}/assets?file=paywall.bundle.js`;
+        document.head.appendChild(bundleScript);
+    }
+
     // Inject SPA helper styles for native Jellyfin UI integration
     const style = document.createElement('style');
     style.innerHTML = `
@@ -52,22 +60,22 @@
      */
     async function ensureCircleSdk() {
         return new Promise((resolve, reject) => {
-            if (window.W3sPwWebSdk || window.W3SSdk || window.CircleW3SSdk) return resolve(true);
-            if (document.getElementById('circle-sdk-script')) return resolve(true);
+            if (window.W3SSdk || window.W3sPwWebSdk || window.CircleW3SSdk) return resolve(true);
+            if (document.getElementById('circle-sdk-script-cdn')) return resolve(true);
 
-            const script = document.createElement('script');
-            script.id = 'circle-sdk-script';
-            script.src = `${pluginRoute}/assets?file=paywall.bundle.js`;
-            script.onload = () => resolve(true);
-            script.onerror = () => {
-                const cdnScript = document.createElement('script');
-                cdnScript.id = 'circle-sdk-script-cdn';
-                cdnScript.src = 'https://cdn.jsdelivr.net/npm/@circle-fin/w3s-pw-web-sdk@1.0.8/dist/w3s-pw-web-sdk.standalone.js';
-                cdnScript.onload = () => resolve(true);
-                cdnScript.onerror = () => reject(new Error('Failed to load Circle SDK from local relay and CDN'));
-                document.head.appendChild(cdnScript);
+            const cdnScript = document.createElement('script');
+            cdnScript.id = 'circle-sdk-script-cdn';
+            cdnScript.src = 'https://cdn.jsdelivr.net/npm/@circle-fin/w3s-pw-web-sdk@1.0.8/dist/w3s-pw-web-sdk.standalone.js';
+            cdnScript.onload = () => resolve(true);
+            cdnScript.onerror = () => {
+                const altScript = document.createElement('script');
+                altScript.id = 'circle-sdk-script-alt';
+                altScript.src = `${pluginRoute}/assets?file=paywall.bundle.js`;
+                altScript.onload = () => resolve(true);
+                altScript.onerror = () => reject(new Error('Failed to load Circle Web SDK'));
+                document.head.appendChild(altScript);
             };
-            document.head.appendChild(script);
+            document.head.appendChild(cdnScript);
         });
     }
 
@@ -113,9 +121,12 @@
                 statusElement.innerHTML = '<i>Abriendo diálogo de seguridad Circle para PIN...</i>';
                 await ensureCircleSdk();
 
-                const SdkClass = window.W3sPwWebSdk || window.W3SSdk || window.CircleW3SSdk;
+                const SdkClass = window.W3SSdk || window.W3sPwWebSdk || window.CircleW3SSdk;
                 if (SdkClass) {
-                    const sdk = new SdkClass();
+                    const sdk = new SdkClass({ appId: appId });
+                    if (typeof sdk.getDeviceId === 'function') {
+                        sdk.getDeviceId();
+                    }
                     if (typeof sdk.setAppSettings === 'function') {
                         sdk.setAppSettings({ appId: appId });
                     }
