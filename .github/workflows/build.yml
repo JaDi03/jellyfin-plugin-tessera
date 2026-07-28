@@ -88,6 +88,8 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add manifest.json
           git commit -m "chore: auto-update manifest.json for release ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
 
       - name: Create GitHub Release
