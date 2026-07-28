@@ -13,7 +13,7 @@
     if (!document.getElementById('tessera-paywall-bundle')) {
         const bundleScript = document.createElement('script');
         bundleScript.id = 'tessera-paywall-bundle';
-        bundleScript.src = `${pluginRoute}/assets?file=paywall.bundle.js`;
+        bundleScript.src = `${pluginRoute}/assets/paywall.bundle.js`;
         document.head.appendChild(bundleScript);
     }
 
