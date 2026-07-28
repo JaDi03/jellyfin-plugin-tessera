@@ -63,5 +63,46 @@ namespace Jellyfin.Plugin.Tessera
                 }
             }
         }
+
+        [Route("api/core/{*path}")]
+        public async System.Threading.Tasks.Task<IActionResult> RelayCoreApi([FromRoute] string path)
+        {
+            var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
+            serverUrl = serverUrl.TrimEnd('/');
+            var queryString = Request.QueryString.HasValue ? Request.QueryString.Value : string.Empty;
+            string targetUrl = $"{serverUrl}/api/core/{path}{queryString}";
+
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                try
+                {
+                    var request = new System.Net.Http.HttpRequestMessage(
+                        new System.Net.Http.HttpMethod(Request.Method),
+                        targetUrl
+                    );
+
+                    if (Microsoft.AspNetCore.Http.HttpMethods.IsPost(Request.Method) || 
+                        Microsoft.AspNetCore.Http.HttpMethods.IsPut(Request.Method) || 
+                        Microsoft.AspNetCore.Http.HttpMethods.IsPatch(Request.Method))
+                    {
+                        using (var reader = new StreamReader(Request.Body))
+                        {
+                            string bodyString = await reader.ReadToEndAsync();
+                            request.Content = new System.Net.Http.StringContent(bodyString, System.Text.Encoding.UTF8, "application/json");
+                        }
+                    }
+
+                    var response = await client.SendAsync(request);
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    Response.StatusCode = (int)response.StatusCode;
+                    return Content(responseBody, "application/json");
+                }
+                catch (System.Exception ex)
+                {
+                    return StatusCode(502, $"{{\"error\":\"Could not reach Tessera sidecar API relay: {ex.Message}\"}}");
+                }
+            }
+        }
     }
 }
+
