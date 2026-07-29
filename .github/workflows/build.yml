@@ -44,13 +44,16 @@ jobs:
           echo "Calculated SHA256: $SHA256_SUM"
           echo "Calculated MD5: $MD5_SUM"
 
-      - name: Update manifest.json
+      - name: Update and Push manifest.json
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
           git fetch origin main
-          git checkout origin/main -- manifest.json
+          git checkout -B main origin/main
           
           python3 -c "
           import json, datetime
@@ -80,15 +83,10 @@ jobs:
           else:
               print('Version already exists in manifest, skipping append.')
           "
-
-      - name: Commit and Push manifest
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          
           git add manifest.json
           git commit -m "chore: auto-update manifest.json for release ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
-          git push origin HEAD:main
+          git push origin main
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
