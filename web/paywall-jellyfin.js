@@ -274,6 +274,33 @@
             dialogWrapper.remove();
             triggerWalletOnboarding();
         });
+
+        dialogWrapper.querySelectorAll('.btnTip').forEach(function (btn) {
+            btn.addEventListener('click', async function () {
+                const amount = this.getAttribute('data-amount');
+                try {
+                    btn.disabled = true;
+                    btn.innerText = 'Enviando...';
+                    const res = await fetch(`${pluginRoute}/api/core/tip`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: getJellyfinUserId(),
+                            amount: parseFloat(amount),
+                            walletId: currentWalletId
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error);
+                    alert(`¡Propina de $${amount} USDC enviada exitosamente! TX: ${data.txHash || 'Confirmada'}`);
+                } catch (err) {
+                    alert(`Error al enviar propina: ${err.message}`);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = `$${amount}`;
+                }
+            });
+        });
     }
 
     // MutationObserver to detect DOM changes and inject buttons dynamically
