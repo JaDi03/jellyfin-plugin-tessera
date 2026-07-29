@@ -23,8 +23,16 @@ namespace Jellyfin.Plugin.Tessera
                 using (StreamReader reader = new StreamReader(stream))
                 {
                     string content = reader.ReadToEnd();
-                    var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
-                    string configHeader = $"window.TESSERA_URL = '{serverUrl}';\n";
+                    var config = Plugin.Instance?.Configuration;
+                    var serverUrl = config?.TesseraServerUrl ?? "http://localhost:7878";
+                    var creatorWallet = config?.CreatorWallet ?? string.Empty;
+                    var mode = config?.MonetizationMode ?? "pay-per-second";
+                    var rate = config?.DefaultRatePerSecond ?? 0.0001;
+
+                    string configHeader = $"window.TESSERA_URL = '{serverUrl}';\n" +
+                                         $"window.TESSERA_CREATOR_WALLET = '{creatorWallet}';\n" +
+                                         $"window.TESSERA_MODE = '{mode}';\n" +
+                                         $"window.TESSERA_RATE = {rate.ToString(System.Globalization.CultureInfo.InvariantCulture)};\n";
                     return Content(configHeader + content, "application/javascript");
                 }
             }

@@ -9,13 +9,61 @@
 
     const pluginRoute = '/plugins/tessera';
 
+    let paywallInitialized = false;
+
+    /**
+     * Initialize the paywall or tipping engine based on configured mode
+     */
+    function initPaywallEngine() {
+        const mode = window.TESSERA_MODE || 'pay-per-second';
+        const wallet = window.TESSERA_CREATOR_WALLET || '';
+        const rate = window.TESSERA_RATE || 0.0001;
+
+        const arcCashier = window.ArcCashier;
+        if (!arcCashier) return;
+
+        const videoEl = document.querySelector('video');
+        const targetContainer = (videoEl && videoEl.parentNode) 
+                             || document.querySelector('.htmlVideoPlayerContainer, .videoPlayerContainer, #videoPlayerContainer') 
+                             || document.body;
+
+        if (mode === 'free') {
+            console.log('[Tessera] Free video mode. Initializing tipping widget.');
+            document.body.classList.remove('arc-locked');
+            if (typeof arcCashier.initTipMode === 'function') {
+                arcCashier.initTipMode(wallet, '0.10');
+            }
+        } else {
+            console.log('[Tessera] Pay-per-second mode active. Initializing paywall on container:', targetContainer);
+            if (!paywallInitialized && typeof arcCashier.initPaywall === 'function') {
+                paywallInitialized = true;
+                arcCashier.initPaywall(targetContainer);
+            }
+            if (typeof window.arcResetVideoSession === 'function') {
+                window.arcResetVideoSession(rate);
+            }
+        }
+    }
+
     // 1. Auto-inject Tessera paywall bundle immediately on page startup for instant sidecar log initialization
     if (!document.getElementById('tessera-paywall-bundle')) {
         const bundleScript = document.createElement('script');
         bundleScript.id = 'tessera-paywall-bundle';
         bundleScript.src = `${pluginRoute}/assets/paywall.bundle.js`;
+        bundleScript.onload = function () {
+            if (document.querySelector('video')) {
+                initPaywallEngine();
+            }
+        };
         document.head.appendChild(bundleScript);
     }
+
+    // Listen for video playback start
+    document.addEventListener('play', function (e) {
+        if (e.target && e.target.tagName === 'VIDEO') {
+            initPaywallEngine();
+        }
+    }, true);
 
     // Inject SPA helper styles for native Jellyfin UI integration
     const style = document.createElement('style');
@@ -143,7 +191,7 @@
                     
                     <div style="background: rgba(255,179,0,0.1); border: 1px solid rgba(255,179,0,0.3); padding: 12px 16px; border-radius: 8px; margin-bottom: 20px;">
                         <div style="font-weight: bold; color: #ffb300;">Tarifa de Streaming:</div>
-                        <div style="font-size: 1.1rem;">⚡ 0.0001 USDC / segundo ($0.006 / min)</div>
+                        <div style="font-size: 1.1rem;">⚡ ${window.TESSERA_RATE || 0.0001} USDC / segundo</div>
                     </div>
 
                     <div style="margin-bottom: 20px;">
@@ -173,58 +221,17 @@
             dialogWrapper.remove();
             triggerWalletOnboarding();
         });
-
-        dialogWrapper.querySelectorAll('.btnTip').forEach(function (btn) {
-            btn.addEventListener('click', async function () {
-                const amount = this.getAttribute('data-amount');
-                if (!currentWalletId) {
-                    alert('Primero debes conectar tu Wallet.');
-                    return;
-                }
-                try {
-                    btn.disabled = true;
-                    btn.innerText = 'Enviando...';
-                    const res = await fetch(`${pluginRoute}/api/core/tip`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            userId: getJellyfinUserId(),
-                            amount: parseFloat(amount),
-                            walletId: currentWalletId
-                        })
-                    });
-                    const data = await res.json();
-                    if (data.error) throw new Error(data.error);
-                    alert(`¡Propina de $${amount} USDC enviada exitosamente! TX: ${data.txHash || 'Confirmada'}`);
-                } catch (err) {
-                    alert(`Error al enviar propina: ${err.message}`);
-                } finally {
-                    btn.disabled = false;
-                    btn.innerText = `$${amount}`;
-                }
-            });
-        });
-    }
-
-    /**
-     * Native Playback Enforcement Hook for HTML5 Video
-     */
-    function attachPlaybackMonitor() {
-        document.addEventListener('timeupdate', function (e) {
-            if (e.target && e.target.tagName === 'VIDEO') {
-                const video = e.target;
-                // Optional: Monitor playback session active status
-            }
-        }, true);
     }
 
     // MutationObserver to detect DOM changes and inject buttons dynamically
     const observer = new MutationObserver(function () {
         injectOSDButton();
         injectDetailButton();
+        if (document.querySelector('video')) {
+            initPaywallEngine();
+        }
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
-    attachPlaybackMonitor();
     console.log('[Tessera] Native Client UI Script loaded.');
 })();
