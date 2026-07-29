@@ -7,6 +7,7 @@
 (function () {
     'use strict';
 
+    const pluginRoute = '/plugins/tessera';
     let paywallInitialized = false;
     let currentInitializedItemId = null;
 
