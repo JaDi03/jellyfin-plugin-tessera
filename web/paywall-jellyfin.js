@@ -10,12 +10,51 @@
     const pluginRoute = '/plugins/tessera';
 
     let paywallInitialized = false;
+    let currentActiveItemId = null;
+
+    /**
+     * Extract Jellyfin item ID from current URL hash/query
+     */
+    function getCurrentItemId() {
+        const match = window.location.href.match(/[?&]id=([a-f0-9]{32})/i);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Fetch video monetization mode: checks Jellyfin Item Tags first, falls back to global setting
+     */
+    async function getItemMonetizationMode(itemId) {
+        const globalMode = window.TESSERA_MODE || 'pay-per-second';
+        if (!window.ApiClient || typeof window.ApiClient.getItem !== 'function' || !itemId) {
+            return globalMode;
+        }
+
+        try {
+            const userId = window.ApiClient.getCurrentUserId();
+            const item = await window.ApiClient.getItem(userId, itemId);
+            if (item && Array.isArray(item.Tags)) {
+                if (item.Tags.includes('tessera:free') || item.Tags.includes('tessera-free')) {
+                    console.log('[Tessera] Video tagged as free:', itemId);
+                    return 'free';
+                }
+                if (item.Tags.includes('tessera:pay-per-second') || item.Tags.includes('tessera-pay-per-second')) {
+                    console.log('[Tessera] Video tagged as pay-per-second:', itemId);
+                    return 'pay-per-second';
+                }
+            }
+        } catch (err) {
+            console.warn('[Tessera] Could not fetch Jellyfin item tags:', err);
+        }
+
+        return globalMode;
+    }
 
     /**
      * Initialize the paywall or tipping engine based on configured mode
      */
-    function initPaywallEngine() {
-        const mode = window.TESSERA_MODE || 'pay-per-second';
+    async function initPaywallEngine() {
+        const itemId = getCurrentItemId();
+        const mode = await getItemMonetizationMode(itemId);
         const wallet = window.TESSERA_CREATOR_WALLET || '';
         const rate = window.TESSERA_RATE || 0.0001;
 
@@ -28,7 +67,7 @@
                              || document.body;
 
         if (mode === 'free') {
-            console.log('[Tessera] Free video mode. Initializing tipping widget.');
+            console.log('[Tessera] Free video mode active. Initializing tipping widget.');
             document.body.classList.remove('arc-locked');
             if (typeof arcCashier.initTipMode === 'function') {
                 arcCashier.initTipMode(wallet, '0.10');
