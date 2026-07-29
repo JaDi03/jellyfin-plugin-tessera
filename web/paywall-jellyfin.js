@@ -7,17 +7,15 @@
 (function () {
     'use strict';
 
-    const pluginRoute = '/plugins/tessera';
-
     let paywallInitialized = false;
-    let currentActiveItemId = null;
+    let currentInitializedItemId = null;
 
     /**
      * Extract Jellyfin item ID from current URL hash/query
      */
     function getCurrentItemId() {
         const match = window.location.href.match(/[?&]id=([a-f0-9]{32})/i);
-        return match ? match[1] : null;
+        return match ? match[1] : 'default';
     }
 
     /**
@@ -25,7 +23,7 @@
      */
     async function getItemMonetizationMode(itemId) {
         const globalMode = window.TESSERA_MODE || 'pay-per-second';
-        if (!window.ApiClient || typeof window.ApiClient.getItem !== 'function' || !itemId) {
+        if (!window.ApiClient || typeof window.ApiClient.getItem !== 'function' || !itemId || itemId === 'default') {
             return globalMode;
         }
 
@@ -54,12 +52,19 @@
      */
     async function initPaywallEngine() {
         const itemId = getCurrentItemId();
-        const mode = await getItemMonetizationMode(itemId);
-        const wallet = window.TESSERA_CREATOR_WALLET || '';
-        const rate = window.TESSERA_RATE || 0.0001;
+        if (paywallInitialized && currentInitializedItemId === itemId) {
+            return;
+        }
 
         const arcCashier = window.ArcCashier;
         if (!arcCashier) return;
+
+        paywallInitialized = true;
+        currentInitializedItemId = itemId;
+
+        const mode = await getItemMonetizationMode(itemId);
+        const wallet = window.TESSERA_CREATOR_WALLET || '';
+        const rate = window.TESSERA_RATE || 0.0001;
 
         const videoEl = document.querySelector('video');
         const targetContainer = (videoEl && videoEl.parentNode) 
@@ -74,8 +79,7 @@
             }
         } else {
             console.log('[Tessera] Pay-per-second mode active. Initializing paywall on container:', targetContainer);
-            if (!paywallInitialized && typeof arcCashier.initPaywall === 'function') {
-                paywallInitialized = true;
+            if (typeof arcCashier.initPaywall === 'function') {
                 arcCashier.initPaywall(targetContainer);
             }
             if (typeof window.arcResetVideoSession === 'function') {
@@ -97,9 +101,19 @@
         document.head.appendChild(bundleScript);
     }
 
+    // Reset init state on navigation
+    window.addEventListener('hashchange', function () {
+        paywallInitialized = false;
+        currentInitializedItemId = null;
+    });
+
     // Listen for video playback start
     document.addEventListener('play', function (e) {
         if (e.target && e.target.tagName === 'VIDEO') {
+            const newItemId = getCurrentItemId();
+            if (currentInitializedItemId !== newItemId) {
+                paywallInitialized = false;
+            }
             initPaywallEngine();
         }
     }, true);
@@ -266,7 +280,7 @@
     const observer = new MutationObserver(function () {
         injectOSDButton();
         injectDetailButton();
-        if (document.querySelector('video')) {
+        if (document.querySelector('video') && !paywallInitialized) {
             initPaywallEngine();
         }
     });
