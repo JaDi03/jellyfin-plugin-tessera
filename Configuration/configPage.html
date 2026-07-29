@@ -19,6 +19,21 @@
                 </div>
 
                 <div class="inputContainer">
+                    <label class="inputLabel" for="txtCreatorWallet">Creator Arc Network Wallet Address (0x...):</label>
+                    <input id="txtCreatorWallet" name="txtCreatorWallet" type="text" is="emby-input" placeholder="0x..." />
+                    <div class="fieldDescription">The EVM wallet address that receives per-second streaming fees and creator tips on Arc Network.</div>
+                </div>
+
+                <div class="selectContainer">
+                    <label class="selectLabel" for="selectMonetizationMode">Monetization Mode:</label>
+                    <select id="selectMonetizationMode" name="selectMonetizationMode" is="emby-select">
+                        <option value="pay-per-second">⚡ Pay-per-second (private paywall stream)</option>
+                        <option value="free">🆓 Free (tips welcome)</option>
+                    </select>
+                    <div class="fieldDescription">Choose whether videos require pay-per-second streaming authorization or are free with optional tipping.</div>
+                </div>
+
+                <div class="inputContainer">
                     <label class="inputLabel" for="txtDefaultRate">Default Streaming Rate per Second (USDC):</label>
                     <input id="txtDefaultRate" name="txtDefaultRate" type="number" step="0.000001" is="emby-input" required />
                     <div class="fieldDescription">Default per-second contribution rate applied when a viewer supports your server (e.g. 0.0001 = $0.0001 USDC/sec).</div>
@@ -54,6 +69,8 @@
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         document.querySelector('#txtTesseraServerUrl').value = config.TesseraServerUrl || 'http://localhost:7878';
+                        document.querySelector('#txtCreatorWallet').value = config.CreatorWallet || '';
+                        document.querySelector('#selectMonetizationMode').value = config.MonetizationMode || 'pay-per-second';
                         document.querySelector('#txtDefaultRate').value = config.DefaultRatePerSecond || 0.0001;
                         document.querySelector('#chkEnablePaywallOverlay').checked = config.EnablePaywallOverlay !== false;
                         document.querySelector('#chkEnableTipping').checked = config.EnableTipping !== false;
@@ -66,6 +83,8 @@
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         config.TesseraServerUrl = document.querySelector('#txtTesseraServerUrl').value;
+                        config.CreatorWallet = document.querySelector('#txtCreatorWallet').value;
+                        config.MonetizationMode = document.querySelector('#selectMonetizationMode').value;
                         config.DefaultRatePerSecond = parseFloat(document.querySelector('#txtDefaultRate').value);
                         config.EnablePaywallOverlay = document.querySelector('#chkEnablePaywallOverlay').checked;
                         config.EnableTipping = document.querySelector('#chkEnableTipping').checked;

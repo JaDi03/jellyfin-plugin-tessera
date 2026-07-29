@@ -19,6 +19,16 @@ namespace Jellyfin.Plugin.Tessera
         public double DefaultRatePerSecond { get; set; } = 0.0001;
 
         /// <summary>
+        /// Gets or sets the EVM wallet address of the creator/server owner to receive payments.
+        /// </summary>
+        public string CreatorWallet { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the monetization mode: "pay-per-second" or "free".
+        /// </summary>
+        public string MonetizationMode { get; set; } = "pay-per-second";
+
+        /// <summary>
         /// Gets or sets whether the community support overlay is enabled.
         /// </summary>
         public bool EnablePaywallOverlay { get; set; } = true;
