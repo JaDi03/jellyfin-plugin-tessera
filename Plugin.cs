@@ -49,7 +49,10 @@ namespace Jellyfin.Plugin.Tessera
                 var pluginsDir = Path.Combine(applicationPaths.ProgramDataPath, "plugins");
                 if (!Directory.Exists(pluginsDir)) return;
 
-                var currentVersion = new Version("1.0.4.0");
+                // Read the version from the executing assembly instead of hardcoding it,
+                // so this never drifts from the .csproj <Version> again.
+                var currentVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version
+                    ?? new Version("1.0.24.0");
                 var directories = Directory.GetDirectories(pluginsDir, "Tessera_*");
 
                 foreach (var dir in directories)
