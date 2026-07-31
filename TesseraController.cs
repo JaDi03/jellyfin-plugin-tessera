@@ -32,7 +32,7 @@ namespace Jellyfin.Plugin.Tessera
                 {
                     string content = reader.ReadToEnd();
                     var config = Plugin.Instance?.Configuration;
-                    var serverUrl = config?.TesseraServerUrl ?? "http://localhost:7878";
+                    var serverUrl = config?.TesseraServerUrl ?? "http://tessera-backend:7878";
                     var creatorWallet = config?.CreatorWallet ?? string.Empty;
                     var mode = config?.MonetizationMode ?? "pay-per-second";
                     var rate = config?.DefaultRatePerSecond ?? 0.0001;
@@ -49,7 +49,7 @@ namespace Jellyfin.Plugin.Tessera
         [HttpGet("assets")]
         public async System.Threading.Tasks.Task<IActionResult> GetAsset([FromQuery] string file)
         {
-            var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
+            var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://tessera-backend:7878";
             serverUrl = serverUrl.TrimEnd('/');
             string url = $"{serverUrl}/jellyfin-assets/{file}";
 
@@ -84,7 +84,7 @@ namespace Jellyfin.Plugin.Tessera
         [HttpGet("assets/{filename}")]
         public async System.Threading.Tasks.Task<IActionResult> GetAssetByPath([FromRoute] string filename)
         {
-            var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
+            var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://tessera-backend:7878";
             serverUrl = serverUrl.TrimEnd('/');
             string url = $"{serverUrl}/jellyfin-assets/{filename}";
 
@@ -119,7 +119,7 @@ namespace Jellyfin.Plugin.Tessera
         [Route("api/core/{*path}")]
         public async System.Threading.Tasks.Task<IActionResult> RelayCoreApi([FromRoute] string path)
         {
-            var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://localhost:7878";
+            var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://tessera-backend:7878";
             serverUrl = serverUrl.TrimEnd('/');
             var queryString = Request.QueryString.HasValue ? Request.QueryString.Value : string.Empty;
             string targetUrl = $"{serverUrl}/api/core/{path}{queryString}";
