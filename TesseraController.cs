@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.Tessera
         // OS sockets under load, causing intermittent hangs in this relay.
         private static readonly System.Net.Http.HttpClient SharedHttpClient = new System.Net.Http.HttpClient
         {
-            Timeout = System.TimeSpan.FromSeconds(10)
+            Timeout = System.TimeSpan.FromSeconds(30)
         };
 
         [HttpGet("paywall-jellyfin.js")]
