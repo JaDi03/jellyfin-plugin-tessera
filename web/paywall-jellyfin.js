@@ -28,13 +28,19 @@
      */
     async function getItemMonetizationMode(itemId) {
         const globalMode = window.TESSERA_MODE || 'pay-per-second';
-        if (!window.ApiClient || typeof window.ApiClient.getItem !== 'function' || !itemId || itemId === 'default') {
+        if (!window.ApiClient || !itemId || itemId === 'default') {
             return globalMode;
         }
 
         try {
             const userId = window.ApiClient.getCurrentUserId();
-            const item = await window.ApiClient.getItem(userId, itemId);
+            let item = null;
+            if (typeof window.ApiClient.getJSON === 'function' && typeof window.ApiClient.getUrl === 'function') {
+                item = await window.ApiClient.getJSON(window.ApiClient.getUrl('Users/' + userId + '/Items/' + itemId, { Fields: 'Tags' }));
+            } else if (typeof window.ApiClient.getItem === 'function') {
+                item = await window.ApiClient.getItem(userId, itemId);
+            }
+
             if (item && Array.isArray(item.Tags)) {
                 if (item.Tags.includes('tessera:free') || item.Tags.includes('tessera-free')) {
                     console.log('[Tessera] Video tagged as free:', itemId);
