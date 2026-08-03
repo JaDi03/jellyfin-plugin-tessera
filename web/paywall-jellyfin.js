@@ -24,7 +24,8 @@
     }
 
     /**
-     * Fetch video monetization mode: checks Jellyfin Item Tags first, falls back to global setting
+     * Fetch video monetization mode: checks Jellyfin Item Tags first, falls back to global setting.
+     * MUST pass Fields=Tags explicitly to Jellyfin REST API.
      */
     async function getItemMonetizationMode(itemId) {
         const globalMode = window.TESSERA_MODE || 'pay-per-second';
@@ -34,22 +35,28 @@
 
         try {
             const userId = window.ApiClient.getCurrentUserId();
+            const endpoint = userId ? ('Users/' + userId + '/Items/' + itemId) : ('Items/' + itemId);
             let item = null;
+
             if (typeof window.ApiClient.getJSON === 'function' && typeof window.ApiClient.getUrl === 'function') {
-                item = await window.ApiClient.getJSON(window.ApiClient.getUrl('Users/' + userId + '/Items/' + itemId, { Fields: 'Tags' }));
+                item = await window.ApiClient.getJSON(window.ApiClient.getUrl(endpoint, { Fields: 'Tags' }));
             } else if (typeof window.ApiClient.getItem === 'function') {
                 item = await window.ApiClient.getItem(userId, itemId);
             }
 
             if (item && Array.isArray(item.Tags)) {
-                if (item.Tags.includes('tessera:free') || item.Tags.includes('tessera-free')) {
+                console.log('[Tessera] Item tags loaded:', itemId, item.Tags);
+                const normalizedTags = item.Tags.map(t => String(t).trim().toLowerCase());
+                if (normalizedTags.includes('tessera:free') || normalizedTags.includes('tessera-free')) {
                     console.log('[Tessera] Video tagged as free:', itemId);
                     return 'free';
                 }
-                if (item.Tags.includes('tessera:pay-per-second') || item.Tags.includes('tessera-pay-per-second')) {
+                if (normalizedTags.includes('tessera:pay-per-second') || normalizedTags.includes('tessera-pay-per-second')) {
                     console.log('[Tessera] Video tagged as pay-per-second:', itemId);
                     return 'pay-per-second';
                 }
+            } else {
+                console.log('[Tessera] Item returned no Tags array:', itemId, item);
             }
         } catch (err) {
             console.warn('[Tessera] Could not fetch Jellyfin item tags:', err);
@@ -83,9 +90,9 @@
         const rate = window.TESSERA_RATE || 0.0001;
 
         const videoEl = document.querySelector('video');
-        const targetContainer = (videoEl && videoEl.parentNode) 
-                             || document.querySelector('.htmlVideoPlayerContainer, .videoPlayerContainer, #videoPlayerContainer') 
-                             || document.body;
+        const targetContainer = (videoEl && videoEl.parentNode)
+            || document.querySelector('.htmlVideoPlayerContainer, .videoPlayerContainer, #videoPlayerContainer')
+            || document.body;
 
         if (mode === 'free') {
             console.log('[Tessera] Free video mode active. Initializing tipping widget.');

@@ -41,6 +41,7 @@ namespace Jellyfin.Plugin.Tessera
                                          $"window.TESSERA_CREATOR_WALLET = '{creatorWallet}';\n" +
                                          $"window.TESSERA_MODE = '{mode}';\n" +
                                          $"window.TESSERA_RATE = {rate.ToString(System.Globalization.CultureInfo.InvariantCulture)};\n";
+                    Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
                     return Content(configHeader + content, "application/javascript");
                 }
             }
