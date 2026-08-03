@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.30.0",
+        "changelog": "Automated release for version 1.0.30.0",
+        "targetAbiVersion": "10.9.0.0",
+        "sourceUrl": "https://github.com/JaDi03/jellyfin-plugin-tessera/releases/download/v1.0.30/Jellyfin.Plugin.Tessera.zip",
+        "checksum": "5D94B177FA7DEBC73F1552C5956E5B38",
+        "timestamp": "2026-08-03T06:20:21.295638Z"
+      },
+      {
         "version": "1.0.29.0",
         "changelog": "Automated release for version 1.0.29.0",
         "targetAbiVersion": "10.9.0.0",
