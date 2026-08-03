@@ -10,59 +10,183 @@
     const pluginRoute = '/plugins/tessera';
     let paywallInitialized = false;
     let currentInitializedItemId = null;
+    let navigationEpoch = 0;
 
-    /**
-     * Extract Jellyfin item ID from current URL hash/query
-     */
-    function getCurrentItemId() {
-        const match = window.location.href.match(/[?&]id=([a-f0-9]{32})/i);
-        return match ? match[1] : 'default';
+    const QUERY_ID_REGEX = /[?&]id=([a-f0-9]{32})/i;
+    const PATH_ID_REGEX = /\/(?:Items|Videos|Audio)\/([a-f0-9]{32})\b/i;
+
+    const URL_RETRY_DELAYS_MS = [150, 300, 600, 1200];
+    const SESSION_LOOKUP_RETRY_DELAYS_MS = [500, 750, 1000, 1500];
+
+    function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function extractIdFromUrlString(str) {
+        if (!str) return null;
+        const queryMatch = str.match(QUERY_ID_REGEX);
+        if (queryMatch) return queryMatch[1];
+        const pathMatch = str.match(PATH_ID_REGEX);
+        return pathMatch ? pathMatch[1] : null;
     }
 
     /**
-     * Fetch video monetization mode: checks Jellyfin Item Tags first, falls back to global setting
+     * Reads item ID directly off the <video> element's actual stream URL
+     */
+    function extractIdFromVideoElement() {
+        const videoEl = document.querySelector('video');
+        if (!videoEl) return null;
+        return extractIdFromUrlString(videoEl.currentSrc) || extractIdFromUrlString(videoEl.src);
+    }
+
+    /**
+     * Queries Jellyfin Server /Sessions endpoint for active playing item ID
+     */
+    async function fetchNowPlayingItemIdFromSession() {
+        if (
+            !window.ApiClient ||
+            typeof window.ApiClient.serverAddress !== 'function' ||
+            typeof window.ApiClient.accessToken !== 'function' ||
+            typeof window.ApiClient.deviceId !== 'function'
+        ) {
+            return null;
+        }
+
+        const deviceId = window.ApiClient.deviceId();
+        if (!deviceId) return null;
+
+        const serverAddress = window.ApiClient.serverAddress();
+        const accessToken = window.ApiClient.accessToken();
+        const url = `${serverAddress}/Sessions?deviceId=${encodeURIComponent(deviceId)}`;
+
+        try {
+            const res = await fetch(url, {
+                headers: accessToken ? { 'X-Emby-Token': accessToken } : {},
+            });
+            if (!res.ok) {
+                console.warn('[Tessera] Session lookup returned non-OK status:', res.status);
+                return null;
+            }
+
+            const sessions = await res.json();
+            if (!Array.isArray(sessions) || sessions.length === 0) return null;
+
+            const playingSessions = sessions.filter((s) => s && s.NowPlayingItem && s.NowPlayingItem.Id);
+            if (playingSessions.length === 0) return null;
+
+            playingSessions.sort((a, b) => {
+                const aDate = a.LastActivityDate ? Date.parse(a.LastActivityDate) : 0;
+                const bDate = b.LastActivityDate ? Date.parse(b.LastActivityDate) : 0;
+                return bDate - aDate;
+            });
+
+            return playingSessions[0].NowPlayingItem.Id;
+        } catch (err) {
+            console.warn('[Tessera] Session lookup request failed:', err);
+            return null;
+        }
+    }
+
+    /**
+     * Resolves the current item ID through the full strategy cascade
+     */
+    async function resolveCurrentItemId() {
+        let id = extractIdFromUrlString(window.location.href) || extractIdFromVideoElement();
+        if (id) return id;
+
+        for (const delay of URL_RETRY_DELAYS_MS) {
+            await sleep(delay);
+            id = extractIdFromUrlString(window.location.href) || extractIdFromVideoElement();
+            if (id) return id;
+        }
+
+        for (const delay of SESSION_LOOKUP_RETRY_DELAYS_MS) {
+            id = await fetchNowPlayingItemIdFromSession();
+            if (id) return id;
+            await sleep(delay);
+        }
+
+        console.warn('[Tessera] Could not resolve item ID after all strategies; falling back to global mode.');
+        return 'default';
+    }
+
+    const modeCache = new Map();
+
+    /**
+     * Fetches Tags for an item via explicit REST API request with Fields=Tags
+     */
+    async function fetchItemTags(itemId) {
+        if (
+            !window.ApiClient ||
+            typeof window.ApiClient.serverAddress !== 'function' ||
+            typeof window.ApiClient.accessToken !== 'function' ||
+            typeof window.ApiClient.getCurrentUserId !== 'function'
+        ) {
+            return null;
+        }
+
+        const userId = window.ApiClient.getCurrentUserId();
+        if (!userId) return null;
+
+        const serverAddress = window.ApiClient.serverAddress();
+        const accessToken = window.ApiClient.accessToken();
+        const url = `${serverAddress}/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?Fields=Tags`;
+
+        try {
+            const res = await fetch(url, {
+                headers: accessToken ? { 'X-Emby-Token': accessToken } : {},
+            });
+            if (!res.ok) {
+                console.warn('[Tessera] Item Tags lookup failed with status', res.status);
+                return null;
+            }
+            const item = await res.json();
+            return Array.isArray(item.Tags) ? item.Tags : [];
+        } catch (err) {
+            console.warn('[Tessera] Item Tags lookup request failed:', err);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch video monetization mode: checks item Tags first, falls back to global setting
      */
     async function getItemMonetizationMode(itemId) {
         const globalMode = window.TESSERA_MODE || 'pay-per-second';
-        if (!window.ApiClient || !itemId || itemId === 'default') {
+        if (!itemId || itemId === 'default') {
             return globalMode;
         }
 
-        try {
-            const userId = window.ApiClient.getCurrentUserId();
-            const endpoint = userId ? ('Users/' + userId + '/Items/' + itemId) : ('Items/' + itemId);
-            let item = null;
-
-            if (typeof window.ApiClient.getJSON === 'function' && typeof window.ApiClient.getUrl === 'function') {
-                item = await window.ApiClient.getJSON(window.ApiClient.getUrl(endpoint, { Fields: 'Tags' }));
-            } else if (typeof window.ApiClient.getItem === 'function') {
-                item = await window.ApiClient.getItem(userId, itemId);
-            }
-
-            if (item && Array.isArray(item.Tags)) {
-                console.log('[Tessera] Item tags loaded:', itemId, item.Tags);
-                const normalizedTags = item.Tags.map(t => String(t).trim().toLowerCase());
-                if (normalizedTags.includes('tessera:free') || normalizedTags.includes('tessera-free')) {
-                    console.log('[Tessera] Video tagged as free:', itemId);
-                    return 'free';
-                }
-                if (normalizedTags.includes('tessera:pay-per-second') || normalizedTags.includes('tessera-pay-per-second')) {
-                    console.log('[Tessera] Video tagged as pay-per-second:', itemId);
-                    return 'pay-per-second';
-                }
-            }
-        } catch (err) {
-            console.warn('[Tessera] Could not fetch Jellyfin item tags:', err);
+        if (modeCache.has(itemId)) {
+            return modeCache.get(itemId);
         }
 
-        return globalMode;
+        const tags = await fetchItemTags(itemId);
+        let mode = globalMode;
+
+        if (tags) {
+            if (tags.includes('tessera:free') || tags.includes('tessera-free')) {
+                console.log('[Tessera] Video tagged as free:', itemId);
+                mode = 'free';
+            } else if (tags.includes('tessera:pay-per-second') || tags.includes('tessera-pay-per-second')) {
+                console.log('[Tessera] Video tagged as pay-per-second:', itemId);
+                mode = 'pay-per-second';
+            }
+        }
+
+        modeCache.set(itemId, mode);
+        return mode;
     }
 
     /**
      * Initialize the paywall or tipping engine based on configured mode
      */
     async function initPaywallEngine() {
-        const itemId = getCurrentItemId();
+        const epoch = ++navigationEpoch;
+
+        const itemId = await resolveCurrentItemId();
+        if (epoch !== navigationEpoch) return;
+
         if (paywallInitialized && currentInitializedItemId === itemId) {
             return;
         }
@@ -74,6 +198,8 @@
         currentInitializedItemId = itemId;
 
         const mode = await getItemMonetizationMode(itemId);
+        if (epoch !== navigationEpoch) return;
+
         const wallet = window.TESSERA_CREATOR_WALLET || '';
         const rate = window.TESSERA_RATE || 0.0001;
 
@@ -99,7 +225,7 @@
         }
     }
 
-    // 1. Auto-inject Tessera paywall bundle immediately on page startup for instant sidecar log initialization
+    // Auto-inject Tessera paywall bundle on startup
     if (!document.getElementById('tessera-paywall-bundle')) {
         const bundleScript = document.createElement('script');
         bundleScript.id = 'tessera-paywall-bundle';
@@ -112,30 +238,18 @@
         document.head.appendChild(bundleScript);
     }
 
-    // Reset init state on navigation
     window.addEventListener('hashchange', function () {
         paywallInitialized = false;
         currentInitializedItemId = null;
+        navigationEpoch++;
     });
 
-    // Listen for video playback start
     document.addEventListener('play', function (e) {
         if (e.target && e.target.tagName === 'VIDEO') {
-            const newItemId = getCurrentItemId();
-            if (currentInitializedItemId !== newItemId) {
-                paywallInitialized = false;
-            }
             initPaywallEngine();
         }
     }, true);
 
-    // MutationObserver only needs to detect SPA navigation to a video page now
-    // that native button injection was removed (that removal also eliminates
-    // the mutation feedback loop that was the primary cause of the reported
-    // main-thread freeze: injectOSDButton/injectDetailButton ran
-    // querySelectorAll + DOM inserts on every mutation, which triggered new
-    // mutations, in a tight loop). requestAnimationFrame coalescing is kept
-    // as defense-in-depth against high-frequency OSD updates.
     let mutationScheduled = false;
     function handleDomMutations() {
         if (mutationScheduled) return;
