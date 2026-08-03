@@ -12,11 +12,15 @@
     let currentInitializedItemId = null;
 
     /**
-     * Extract Jellyfin item ID from current URL hash/query
+     * Extract Jellyfin item ID from current URL hash/query or Emby Page context
      */
     function getCurrentItemId() {
         const match = window.location.href.match(/[?&]id=([a-f0-9]{32})/i);
-        return match ? match[1] : 'default';
+        if (match) return match[1];
+        if (window.Emby && window.Emby.Page && window.Emby.Page.currentItem && window.Emby.Page.currentItem.Id) {
+            return window.Emby.Page.currentItem.Id;
+        }
+        return 'default';
     }
 
     /**
@@ -51,8 +55,13 @@
     /**
      * Initialize the paywall or tipping engine based on configured mode
      */
-    async function initPaywallEngine() {
-        const itemId = getCurrentItemId();
+    async function initPaywallEngine(retryCount = 0) {
+        let itemId = getCurrentItemId();
+        if (itemId === 'default' && retryCount < 5) {
+            setTimeout(function () { initPaywallEngine(retryCount + 1); }, 150);
+            return;
+        }
+
         if (paywallInitialized && currentInitializedItemId === itemId) {
             return;
         }
