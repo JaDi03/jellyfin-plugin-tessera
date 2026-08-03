@@ -12,20 +12,15 @@
     let currentInitializedItemId = null;
 
     /**
-     * Extract Jellyfin item ID from current URL hash/query or Emby Page context
+     * Extract Jellyfin item ID from current URL hash/query
      */
     function getCurrentItemId() {
         const match = window.location.href.match(/[?&]id=([a-f0-9]{32})/i);
-        if (match) return match[1];
-        if (window.Emby && window.Emby.Page && window.Emby.Page.currentItem && window.Emby.Page.currentItem.Id) {
-            return window.Emby.Page.currentItem.Id;
-        }
-        return 'default';
+        return match ? match[1] : 'default';
     }
 
     /**
-     * Fetch video monetization mode: checks Jellyfin Item Tags/Taglines first, falls back to global setting.
-     * MUST pass Fields=Tags,Taglines,Genres explicitly to Jellyfin REST API.
+     * Fetch video monetization mode: checks Jellyfin Item Tags first, falls back to global setting
      */
     async function getItemMonetizationMode(itemId) {
         const globalMode = window.TESSERA_MODE || 'pay-per-second';
@@ -39,19 +34,14 @@
             let item = null;
 
             if (typeof window.ApiClient.getJSON === 'function' && typeof window.ApiClient.getUrl === 'function') {
-                item = await window.ApiClient.getJSON(window.ApiClient.getUrl(endpoint, { Fields: 'Tags,Taglines,Genres' }));
+                item = await window.ApiClient.getJSON(window.ApiClient.getUrl(endpoint, { Fields: 'Tags' }));
             } else if (typeof window.ApiClient.getItem === 'function') {
                 item = await window.ApiClient.getItem(userId, itemId);
             }
 
-            if (item) {
-                const rawList = [
-                    ...(Array.isArray(item.Tags) ? item.Tags : []),
-                    ...(Array.isArray(item.Taglines) ? item.Taglines : []),
-                    ...(Array.isArray(item.Genres) ? item.Genres : [])
-                ];
-                console.log('[Tessera] Item metadata loaded:', itemId, rawList);
-                const normalizedTags = rawList.map(t => String(t).trim().toLowerCase());
+            if (item && Array.isArray(item.Tags)) {
+                console.log('[Tessera] Item tags loaded:', itemId, item.Tags);
+                const normalizedTags = item.Tags.map(t => String(t).trim().toLowerCase());
                 if (normalizedTags.includes('tessera:free') || normalizedTags.includes('tessera-free')) {
                     console.log('[Tessera] Video tagged as free:', itemId);
                     return 'free';
@@ -62,7 +52,7 @@
                 }
             }
         } catch (err) {
-            console.warn('[Tessera] Could not fetch Jellyfin item metadata:', err);
+            console.warn('[Tessera] Could not fetch Jellyfin item tags:', err);
         }
 
         return globalMode;
@@ -71,13 +61,8 @@
     /**
      * Initialize the paywall or tipping engine based on configured mode
      */
-    async function initPaywallEngine(retryCount = 0) {
-        let itemId = getCurrentItemId();
-        if (itemId === 'default' && retryCount < 5) {
-            setTimeout(function () { initPaywallEngine(retryCount + 1); }, 150);
-            return;
-        }
-
+    async function initPaywallEngine() {
+        const itemId = getCurrentItemId();
         if (paywallInitialized && currentInitializedItemId === itemId) {
             return;
         }
