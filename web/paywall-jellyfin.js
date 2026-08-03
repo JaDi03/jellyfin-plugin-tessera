@@ -24,8 +24,8 @@
     }
 
     /**
-     * Fetch video monetization mode: checks Jellyfin Item Tags first, falls back to global setting.
-     * MUST pass Fields=Tags explicitly to Jellyfin REST API.
+     * Fetch video monetization mode: checks Jellyfin Item Tags/Taglines first, falls back to global setting.
+     * MUST pass Fields=Tags,Taglines,Genres explicitly to Jellyfin REST API.
      */
     async function getItemMonetizationMode(itemId) {
         const globalMode = window.TESSERA_MODE || 'pay-per-second';
@@ -39,14 +39,19 @@
             let item = null;
 
             if (typeof window.ApiClient.getJSON === 'function' && typeof window.ApiClient.getUrl === 'function') {
-                item = await window.ApiClient.getJSON(window.ApiClient.getUrl(endpoint, { Fields: 'Tags' }));
+                item = await window.ApiClient.getJSON(window.ApiClient.getUrl(endpoint, { Fields: 'Tags,Taglines,Genres' }));
             } else if (typeof window.ApiClient.getItem === 'function') {
                 item = await window.ApiClient.getItem(userId, itemId);
             }
 
-            if (item && Array.isArray(item.Tags)) {
-                console.log('[Tessera] Item tags loaded:', itemId, item.Tags);
-                const normalizedTags = item.Tags.map(t => String(t).trim().toLowerCase());
+            if (item) {
+                const rawList = [
+                    ...(Array.isArray(item.Tags) ? item.Tags : []),
+                    ...(Array.isArray(item.Taglines) ? item.Taglines : []),
+                    ...(Array.isArray(item.Genres) ? item.Genres : [])
+                ];
+                console.log('[Tessera] Item metadata loaded:', itemId, rawList);
+                const normalizedTags = rawList.map(t => String(t).trim().toLowerCase());
                 if (normalizedTags.includes('tessera:free') || normalizedTags.includes('tessera-free')) {
                     console.log('[Tessera] Video tagged as free:', itemId);
                     return 'free';
@@ -55,11 +60,9 @@
                     console.log('[Tessera] Video tagged as pay-per-second:', itemId);
                     return 'pay-per-second';
                 }
-            } else {
-                console.log('[Tessera] Item returned no Tags array:', itemId, item);
             }
         } catch (err) {
-            console.warn('[Tessera] Could not fetch Jellyfin item tags:', err);
+            console.warn('[Tessera] Could not fetch Jellyfin item metadata:', err);
         }
 
         return globalMode;
