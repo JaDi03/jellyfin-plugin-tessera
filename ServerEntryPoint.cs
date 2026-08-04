@@ -3,10 +3,11 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Tessera
@@ -15,7 +16,7 @@ namespace Jellyfin.Plugin.Tessera
     /// Listens to native Jellyfin server playback events (PlaybackStart, PlaybackStopped)
     /// and relays them to the Tessera sidecar via HTTP webhook contract.
     /// </summary>
-    public class ServerEntryPoint : IServerEntryPoint
+    public class ServerEntryPoint : IHostedService
     {
         private static readonly HttpClient SharedHttpClient = new HttpClient
         {
@@ -33,11 +34,18 @@ namespace Jellyfin.Plugin.Tessera
             _logger = logger;
         }
 
-        public Task RunAsync()
+        public Task StartAsync(CancellationToken cancellationToken)
         {
             _sessionManager.PlaybackStart += OnPlaybackStart;
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
-            _logger.LogInformation("[Tessera] Native ServerEntryPoint active — listening to ISessionManager playback events.");
+            _logger.LogInformation("[Tessera] ServerEntryPoint active — listening to ISessionManager playback events.");
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            _sessionManager.PlaybackStart -= OnPlaybackStart;
+            _sessionManager.PlaybackStopped -= OnPlaybackStopped;
             return Task.CompletedTask;
         }
 
@@ -126,10 +134,6 @@ namespace Jellyfin.Plugin.Tessera
             using var response = await SharedHttpClient.SendAsync(request);
         }
 
-        public void Dispose()
-        {
-            _sessionManager.PlaybackStart -= OnPlaybackStart;
-            _sessionManager.PlaybackStopped -= OnPlaybackStopped;
-        }
+        public void Dispose() { }
     }
 }
