@@ -1,18 +1,12 @@
 using System;
-using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using MediaBrowser.Common.Configuration;
-using MediaBrowser.Common.Plugins;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
-using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Tessera
