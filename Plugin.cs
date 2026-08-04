@@ -63,8 +63,15 @@ namespace Jellyfin.Plugin.Tessera
                     {
                         if (ver < currentVersion)
                         {
-                            Console.WriteLine($"[Tessera] Auto-cleaning old plugin version folder: {dir}");
-                            Directory.Delete(dir, true);
+                            try
+                            {
+                                Console.WriteLine($"[Tessera] Auto-cleaning old plugin version folder: {dir}");
+                                Directory.Delete(dir, true);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[Tessera] Warning: Could not delete old plugin folder {dir}: {ex.Message}");
+                            }
                         }
                     }
                 }
