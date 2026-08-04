@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
@@ -17,17 +18,19 @@ namespace Jellyfin.Plugin.Tessera
     /// </summary>
     public class ServerEntryPoint : IServerEntryPoint
     {
+        private static readonly HttpClient SharedHttpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+
         private readonly ISessionManager _sessionManager;
-        private readonly HttpClient _httpClient;
         private readonly ILogger<ServerEntryPoint> _logger;
 
         public ServerEntryPoint(
             ISessionManager sessionManager,
-            IHttpClientFactory httpClientFactory,
             ILogger<ServerEntryPoint> logger)
         {
             _sessionManager = sessionManager;
-            _httpClient = httpClientFactory.CreateClient();
             _logger = logger;
         }
 
@@ -61,7 +64,7 @@ namespace Jellyfin.Plugin.Tessera
                     UserId = e.SessionInfo.UserId.ToString("N"),
                     Item = new
                     {
-                        Name = e.Item.Name,
+                        Name = e.Item.Name ?? string.Empty,
                         Tags = e.Item.Tags ?? Array.Empty<string>()
                     },
                     ratePerSecond = config?.DefaultRatePerSecond ?? 0.0001,
@@ -121,7 +124,7 @@ namespace Jellyfin.Plugin.Tessera
                 request.Headers.Add("x-tessera-signature", hex);
             }
 
-            using var response = await _httpClient.SendAsync(request);
+            using var response = await SharedHttpClient.SendAsync(request);
         }
 
         public void Dispose()
