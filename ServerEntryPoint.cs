@@ -58,10 +58,10 @@ namespace Jellyfin.Plugin.Tessera
                 {
                     NotificationType = "PlaybackStart",
                     PlaySessionId = e.SessionInfo.Id,
-                    Id = e.Item.Id.ToString("N"),
-                    ItemId = e.Item.Id.ToString("N"),
+                    Id = e.Item.Id.ToString(),
+                    ItemId = e.Item.Id.ToString(),
                     DeviceId = e.SessionInfo.DeviceId,
-                    UserId = e.SessionInfo.UserId.ToString("N"),
+                    UserId = e.SessionInfo.UserId.ToString(),
                     Item = new
                     {
                         Name = e.Item.Name ?? string.Empty,
@@ -98,7 +98,7 @@ namespace Jellyfin.Plugin.Tessera
                     NotificationType = "PlaybackStop",
                     PlaySessionId = e.SessionInfo.Id,
                     DeviceId = e.SessionInfo.DeviceId,
-                    UserId = e.SessionInfo.UserId.ToString("N")
+                    UserId = e.SessionInfo.UserId.ToString()
                 };
 
                 await SendWebhookAsync(webhookUrl, payload, config?.WebhookSecret);

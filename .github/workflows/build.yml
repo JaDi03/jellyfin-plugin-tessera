@@ -2,6 +2,8 @@ name: Build & Release Jellyfin Plugin
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -25,7 +27,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Build Release Binary
-        run: dotnet build -c Release
+        run: dotnet build -c Release -v n
 
       - name: Package Plugin Zip
         run: |
