@@ -78,7 +78,7 @@ namespace Jellyfin.Plugin.Tessera
             }
         }
 
-        private async void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
+        private async void OnPlaybackStopped(object? sender, PlaybackProgressEventArgs e)
         {
             try
             {
