@@ -329,13 +329,13 @@ namespace Jellyfin.Plugin.Tessera
             }
         }
 
-        private sealed class RegisterViewerRequest
+        public sealed class RegisterViewerRequest
         {
             public string? DeviceId { get; set; }
             public string? SessionId { get; set; }
         }
 
-        private sealed class BillingRequest
+        public sealed class BillingRequest
         {
             public string? DeviceId { get; set; }
             public string? SessionId { get; set; }
