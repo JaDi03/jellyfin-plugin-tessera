@@ -7,6 +7,10 @@
 (function () {
     'use strict';
 
+    // Avoid double-inject (plugin script tag + cached VM copy) doubling polls/listeners.
+    if (window.__tesseraPaywallJellyfinLoaded) return;
+    window.__tesseraPaywallJellyfinLoaded = true;
+
     const pluginRoute = '/plugins/tessera';
     const STATE_POLL_MS = 400;
     const STATE_POLL_MAX = 20;
@@ -74,13 +78,17 @@
             pluginRoute + '/playback-state?deviceId=' + encodeURIComponent(deviceId),
             { credentials: 'same-origin' }
         );
+        // Legacy 404 = not ready yet. Prefer 200 { ready: false } to avoid console spam.
         if (res.status === 404) return null;
         if (!res.ok) throw new Error('playback-state HTTP ' + res.status);
-        return res.json();
+        const body = await res.json();
+        if (!body || body.ready === false || !body.itemId) return null;
+        return body;
     }
 
     async function waitForPlaybackState(deviceId) {
         for (let i = 0; i < STATE_POLL_MAX; i++) {
+            if (!isVideoPlayerView()) return null;
             const state = await fetchPlaybackState(deviceId);
             if (state && state.itemId) return state;
             await sleep(STATE_POLL_MS);

@@ -29,13 +29,16 @@ namespace Jellyfin.Plugin.Tessera
             }
 
             var state = PlaybackStateService.Get(deviceId);
+            // 200 pending (not 404): browser console treats 404 as an error and floods
+            // while the client waits for Jellyfin PlaybackStart to publish mode.
             if (state == null)
             {
-                return NotFound(new { error = "No active playback for this device" });
+                return Ok(new { ready = false });
             }
 
             return Ok(new
             {
+                ready = true,
                 itemId = state.ItemId,
                 itemName = state.ItemName,
                 mode = state.Mode,
