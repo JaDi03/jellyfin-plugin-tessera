@@ -12,151 +12,150 @@ namespace Jellyfin.Plugin.Tessera
     [Route("plugins/tessera")]
     public class TesseraController : ControllerBase
     {
-        // Shared, reused HttpClient across all requests. Instantiating a new
-        // HttpClient per-request is a documented .NET anti-pattern that exhausts
-        // OS sockets under load, causing intermittent hangs in this relay.
         private static readonly System.Net.Http.HttpClient SharedHttpClient = new System.Net.Http.HttpClient
         {
             Timeout = System.TimeSpan.FromSeconds(30)
         };
 
         /// <summary>
-        /// Client-driven billing ping. Uses arc_cashier_user_id from the paywall so
-        /// Gateway charges hit the same session the browser registered.
+        /// Browser polls after play. Mode is set by Jellyfin PlaybackStart + Item.Tags on the server.
         /// </summary>
-        [HttpPost("ping")]
-        public async System.Threading.Tasks.Task<IActionResult> Ping()
+        [HttpGet("playback-state")]
+        public IActionResult GetPlaybackState([FromQuery] string deviceId)
         {
-            string bodyString;
-            using (var reader = new StreamReader(Request.Body))
+            if (string.IsNullOrWhiteSpace(deviceId))
             {
-                bodyString = await reader.ReadToEndAsync();
+                return BadRequest(new { error = "Missing deviceId" });
             }
 
-            PingRequest? ping;
-            try
+            var state = PlaybackStateService.Get(deviceId);
+            if (state == null)
             {
-                ping = JsonSerializer.Deserialize<PingRequest>(bodyString, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-            }
-            catch
-            {
-                return BadRequest(new { error = "Invalid JSON body" });
+                return NotFound(new { error = "No active playback for this device" });
             }
 
-            if (ping == null || string.IsNullOrWhiteSpace(ping.Action) || string.IsNullOrWhiteSpace(ping.SessionId))
+            return Ok(new
             {
-                return BadRequest(new { error = "Missing action or sessionId" });
+                itemId = state.ItemId,
+                itemName = state.ItemName,
+                mode = state.Mode,
+                tags = state.Tags,
+                playSessionId = state.PlaySessionId,
+                updatedAtUtc = state.UpdatedAtUtc,
+            });
+        }
+
+        [HttpPost("register-viewer")]
+        public IActionResult RegisterViewer([FromBody] RegisterViewerRequest? body)
+        {
+            if (body == null || string.IsNullOrWhiteSpace(body.DeviceId) || string.IsNullOrWhiteSpace(body.SessionId))
+            {
+                return BadRequest(new { error = "Missing deviceId or sessionId" });
             }
 
-            if (!ping.SessionId.StartsWith("arc_", StringComparison.Ordinal))
+            if (!body.SessionId.StartsWith("arc_", StringComparison.Ordinal))
             {
-                return BadRequest(new { error = "Missing or invalid sessionId" });
+                return BadRequest(new { error = "Invalid sessionId" });
             }
 
-            var action = ping.Action.Trim().ToLowerInvariant();
-            if (action != "start" && action != "stop" && action != "ping")
+            ViewerSessionRegistry.Register(body.DeviceId, body.SessionId);
+            return Ok(new { status = "registered" });
+        }
+
+        [HttpPost("billing-start")]
+        public async System.Threading.Tasks.Task<IActionResult> BillingStart([FromBody] BillingRequest? body)
+        {
+            if (body == null || string.IsNullOrWhiteSpace(body.DeviceId) || string.IsNullOrWhiteSpace(body.SessionId))
             {
-                return BadRequest(new { error = "action must be start, stop, or ping" });
+                return BadRequest(new { error = "Missing deviceId or sessionId" });
+            }
+
+            if (!body.SessionId.StartsWith("arc_", StringComparison.Ordinal))
+            {
+                return BadRequest(new { error = "Invalid sessionId" });
+            }
+
+            var state = PlaybackStateService.Get(body.DeviceId);
+            if (state == null)
+            {
+                return NotFound(new { error = "No active playback for this device" });
+            }
+
+            if (state.Mode == "free")
+            {
+                return Ok(new { status = "skipped", reason = "free content" });
             }
 
             var config = Plugin.Instance?.Configuration;
             if (string.IsNullOrWhiteSpace(config?.WebhookSecret))
             {
-                return StatusCode(500, new { error = "WebhookSecret is not configured in the Tessera plugin settings. It must match TESSERA_CONNECTOR_SECRET_JELLYFIN on the sidecar." });
+                return StatusCode(500, new { error = "WebhookSecret not configured" });
             }
 
-            var serverUrl = (config?.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/');
-            var webhookUrl = $"{serverUrl}/api/connectors/jellyfin/webhook";
+            ViewerSessionRegistry.Register(body.DeviceId, body.SessionId);
 
-            object payload;
-            if (action == "stop")
+            var payload = new
             {
-                payload = new
-                {
-                    NotificationType = "PlaybackStop",
-                    PlaySessionId = ping.SessionId,
-                    UserId = ping.SessionId,
-                    DeviceId = "jellyfin-web"
-                };
-            }
-            else if (action == "ping")
-            {
-                // Keep-alive for connector logs; billing already started on "start".
-                return Ok(new { status = "ok", eventName = "ping" });
-            }
-            else
-            {
-                payload = new
-                {
-                    NotificationType = "PlaybackStart",
-                    PlaySessionId = ping.SessionId,
-                    Id = ping.ItemId ?? "unknown",
-                    ItemId = ping.ItemId ?? "unknown",
-                    DeviceId = "jellyfin-web",
-                    UserId = ping.SessionId,
-                    Item = new
-                    {
-                        Name = ping.ItemName ?? "Jellyfin Media",
-                        Tags = Array.Empty<string>()
-                    },
-                    ratePerSecond = config?.DefaultRatePerSecond ?? 0.0001,
-                    creatorWallet = config?.CreatorWallet ?? string.Empty,
-                    tesseraMode = config?.MonetizationMode ?? "pay-per-second"
-                };
-            }
+                NotificationType = "PlaybackStart",
+                PlaySessionId = body.SessionId,
+                Id = state.ItemId,
+                ItemId = state.ItemId,
+                DeviceId = body.DeviceId,
+                UserId = body.SessionId,
+                Item = new { Name = state.ItemName, Tags = state.Tags },
+                ratePerSecond = config.DefaultRatePerSecond,
+                creatorWallet = config.CreatorWallet ?? string.Empty,
+                tesseraMode = state.Mode,
+            };
 
             try
             {
-                await SendSignedWebhookAsync(webhookUrl, payload, config?.WebhookSecret);
-                return Ok(new { status = "ok", eventName = action });
-            }
-            catch (System.Threading.Tasks.TaskCanceledException)
-            {
-                return StatusCode(504, new { error = "Tessera sidecar did not respond in time." });
+                await SendSignedWebhookAsync(
+                    $"{(config.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/')}/api/connectors/jellyfin/webhook",
+                    payload,
+                    config.WebhookSecret);
+                return Ok(new { status = "ok", eventName = "PlaybackStart" });
             }
             catch (Exception ex)
             {
-                return StatusCode(502, new { error = $"Could not reach Tessera sidecar: {ex.Message}" });
+                return StatusCode(502, new { error = ex.Message });
             }
         }
 
-        private static async System.Threading.Tasks.Task SendSignedWebhookAsync(string url, object payload, string? secret)
+        [HttpPost("billing-stop")]
+        public async System.Threading.Tasks.Task<IActionResult> BillingStop([FromBody] BillingRequest? body)
         {
-            var json = JsonSerializer.Serialize(payload);
-            using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url);
-            request.Content = new System.Net.Http.StringContent(json, Encoding.UTF8, "application/json");
-
-            if (!string.IsNullOrEmpty(secret))
+            if (body == null || string.IsNullOrWhiteSpace(body.DeviceId) || string.IsNullOrWhiteSpace(body.SessionId))
             {
-                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-                var nonce = Guid.NewGuid().ToString("N");
-                var signingInput = $"{timestamp}.{nonce}.{json}";
-                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-                var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput));
-                var hex = Convert.ToHexString(hash).ToLowerInvariant();
-
-                request.Headers.Add("x-tessera-timestamp", timestamp);
-                request.Headers.Add("x-tessera-nonce", nonce);
-                request.Headers.Add("x-tessera-signature", hex);
+                return BadRequest(new { error = "Missing deviceId or sessionId" });
             }
 
-            using var response = await SharedHttpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
+            var config = Plugin.Instance?.Configuration;
+            if (string.IsNullOrWhiteSpace(config?.WebhookSecret))
             {
-                var errBody = await response.Content.ReadAsStringAsync();
-                throw new InvalidOperationException($"Webhook HTTP {(int)response.StatusCode}: {errBody}");
+                return StatusCode(500, new { error = "WebhookSecret not configured" });
             }
-        }
 
-        private sealed class PingRequest
-        {
-            public string? Action { get; set; }
-            public string? SessionId { get; set; }
-            public string? ItemId { get; set; }
-            public string? ItemName { get; set; }
+            var payload = new
+            {
+                NotificationType = "PlaybackStop",
+                PlaySessionId = body.SessionId,
+                DeviceId = body.DeviceId,
+                UserId = body.SessionId,
+            };
+
+            try
+            {
+                await SendSignedWebhookAsync(
+                    $"{(config.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/')}/api/connectors/jellyfin/webhook",
+                    payload,
+                    config.WebhookSecret);
+                return Ok(new { status = "ok", eventName = "PlaybackStop" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(502, new { error = ex.Message });
+            }
         }
 
         [HttpGet("paywall-jellyfin.js")]
@@ -275,8 +274,8 @@ namespace Jellyfin.Plugin.Tessera
                     targetUrl
                 );
 
-                if (Microsoft.AspNetCore.Http.HttpMethods.IsPost(Request.Method) || 
-                    Microsoft.AspNetCore.Http.HttpMethods.IsPut(Request.Method) || 
+                if (Microsoft.AspNetCore.Http.HttpMethods.IsPost(Request.Method) ||
+                    Microsoft.AspNetCore.Http.HttpMethods.IsPut(Request.Method) ||
                     Microsoft.AspNetCore.Http.HttpMethods.IsPatch(Request.Method))
                 {
                     using (var reader = new StreamReader(Request.Body))
@@ -301,6 +300,45 @@ namespace Jellyfin.Plugin.Tessera
                 return StatusCode(502, $"{{\"error\":\"Could not reach Tessera sidecar API relay: {ex.Message}\"}}");
             }
         }
+
+        private static async System.Threading.Tasks.Task SendSignedWebhookAsync(string url, object payload, string? secret)
+        {
+            var json = JsonSerializer.Serialize(payload);
+            using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            if (!string.IsNullOrEmpty(secret))
+            {
+                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+                var nonce = Guid.NewGuid().ToString("N");
+                var signingInput = $"{timestamp}.{nonce}.{json}";
+                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+                var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput));
+                var hex = Convert.ToHexString(hash).ToLowerInvariant();
+
+                request.Headers.Add("x-tessera-timestamp", timestamp);
+                request.Headers.Add("x-tessera-nonce", nonce);
+                request.Headers.Add("x-tessera-signature", hex);
+            }
+
+            using var response = await SharedHttpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errBody = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"Webhook HTTP {(int)response.StatusCode}: {errBody}");
+            }
+        }
+
+        private sealed class RegisterViewerRequest
+        {
+            public string? DeviceId { get; set; }
+            public string? SessionId { get; set; }
+        }
+
+        private sealed class BillingRequest
+        {
+            public string? DeviceId { get; set; }
+            public string? SessionId { get; set; }
+        }
     }
 }
-
