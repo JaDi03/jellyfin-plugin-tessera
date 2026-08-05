@@ -12,8 +12,9 @@
     window.__tesseraPaywallJellyfinLoaded = true;
 
     const pluginRoute = '/plugins/tessera';
-    const STATE_POLL_MS = 400;
-    const STATE_POLL_MAX = 20;
+    // Faster poll: shortens the visible gap between player chrome and tip/paywall UI.
+    const STATE_POLL_MS = 100;
+    const STATE_POLL_MAX = 40;
 
     let paywallInitialized = false;
     let initInFlight = false;
@@ -27,6 +28,39 @@
 
     function sleep(ms) {
         return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    function ensurePendingStyle() {
+        if (document.getElementById('tessera-pending-style')) return;
+        const style = document.createElement('style');
+        style.id = 'tessera-pending-style';
+        style.textContent =
+            '#tessera-mode-pending{position:absolute;inset:0;z-index:9998;' +
+            'background:rgba(0,0,0,.55);pointer-events:none;}';
+        document.head.appendChild(style);
+    }
+
+    /** Neutral veil while mode resolves: not a paywall / not "Initializing". */
+    function showModePending() {
+        if (document.getElementById('tessera-mode-pending')) return;
+        ensurePendingStyle();
+        const host = document.querySelector(
+            '.htmlVideoPlayerContainer, .videoPlayerContainer, #videoPlayerContainer'
+        ) || (getPlayerVideo() && getPlayerVideo().parentNode);
+        if (!host) return;
+        try {
+            if (window.getComputedStyle(host).position === 'static') {
+                host.style.position = 'relative';
+            }
+        } catch (_) { /* ignore */ }
+        const el = document.createElement('div');
+        el.id = 'tessera-mode-pending';
+        host.appendChild(el);
+    }
+
+    function clearModePending() {
+        const el = document.getElementById('tessera-mode-pending');
+        if (el) el.remove();
     }
 
     function getDeviceId() {
@@ -152,29 +186,34 @@
         if (!arcCashier) return;
 
         initInFlight = true;
+        showModePending();
 
         let state = null;
         try {
             state = await waitForPlaybackState(deviceId);
         } catch (err) {
             console.warn('[Tessera] playback-state poll failed:', err);
+            clearModePending();
             initInFlight = false;
             return;
         }
 
         // Player may have closed while we awaited state
         if (!isVideoPlayerView()) {
+            clearModePending();
             initInFlight = false;
             return;
         }
 
         if (!state) {
             console.warn('[Tessera] No playback state from Jellyfin yet.');
+            clearModePending();
             initInFlight = false;
             return;
         }
 
         if (paywallInitialized && currentItemId === state.itemId) {
+            clearModePending();
             initInFlight = false;
             return;
         }
@@ -210,6 +249,7 @@
             }
         }
 
+        clearModePending();
         if (videoEl) attachVideoListeners(videoEl);
     }
 
@@ -226,7 +266,8 @@
             if (!isVideoPlayerView()) return;
             setMediaPlaying(true);
 
-            if (currentMode === 'free') return;
+            // Strict: null/unknown must not bill (avoids 404 race before playback-state).
+            if (currentMode !== 'pay-per-second') return;
             if (document.body.classList.contains('arc-locked')) return;
             if (billingActive) return;
 
@@ -281,6 +322,7 @@
         paywallInitialized = false;
         initInFlight = false;
         billingActive = false;
+        clearModePending();
 
         if (typeof window.arcTeardownOnNavigate === 'function') {
             await window.arcTeardownOnNavigate();
@@ -318,10 +360,15 @@
     });
 
     // Re-init only for the real player; never for detail/preview trailers.
+    // Do not attach video listeners until init sets currentMode (same play event
+    // would otherwise race billing-start before playback-state exists).
     document.addEventListener('play', function (e) {
         if (!e.target || e.target.tagName !== 'VIDEO') return;
         if (!isVideoPlayerView()) return;
-        initPaywallEngine();
+        if (!paywallInitialized) {
+            initPaywallEngine();
+            return;
+        }
         if (e.target !== attachedVideo) attachVideoListeners(e.target);
     }, true);
 
