@@ -116,9 +116,14 @@ namespace Jellyfin.Plugin.Tessera
             {
                 if (string.IsNullOrWhiteSpace(e.DeviceId)) return;
 
-                var tesseraUserId = ViewerSessionRegistry.GetTesseraUserId(e.DeviceId);
+                var prior = PlaybackStateService.Get(e.DeviceId);
+                var wasFree = string.Equals(prior?.Mode, "free", StringComparison.OrdinalIgnoreCase);
                 PlaybackStateService.Clear(e.DeviceId);
 
+                // Free / tip content never started a Tessera billing webhook on PlaybackStart.
+                if (wasFree) return;
+
+                var tesseraUserId = ViewerSessionRegistry.GetTesseraUserId(e.DeviceId);
                 if (string.IsNullOrEmpty(tesseraUserId)) return;
 
                 _ = RelayWebhookAsync(new
