@@ -39,6 +39,12 @@
                     <div class="fieldDescription">Default per-second contribution rate applied when a viewer supports your server (e.g. 0.0001 = $0.0001 USDC/sec).</div>
                 </div>
 
+                <div class="inputContainer">
+                    <label class="inputLabel" for="txtWebhookSecret">Tessera Connector Webhook Secret:</label>
+                    <input id="txtWebhookSecret" name="txtWebhookSecret" type="password" is="emby-input" autocomplete="off" />
+                    <div class="fieldDescription">Must match the sidecar env <code>TESSERA_CONNECTOR_SECRET_JELLYFIN</code>. Required for billing-start / billing-stop. Not the generic Jellyfin webhooks plugin.</div>
+                </div>
+
                 <div class="checkboxContainer checkboxContainer-withLayout">
                     <label>
                         <input id="chkEnablePaywallOverlay" type="checkbox" is="emby-checkbox" />
@@ -72,6 +78,7 @@
                         document.querySelector('#txtCreatorWallet').value = config.CreatorWallet || '';
                         document.querySelector('#selectMonetizationMode').value = config.MonetizationMode || 'pay-per-second';
                         document.querySelector('#txtDefaultRate').value = config.DefaultRatePerSecond || 0.0001;
+                        document.querySelector('#txtWebhookSecret').value = config.WebhookSecret || '';
                         document.querySelector('#chkEnablePaywallOverlay').checked = config.EnablePaywallOverlay !== false;
                         document.querySelector('#chkEnableTipping').checked = config.EnableTipping !== false;
                         Dashboard.hideLoadingMsg();
@@ -86,6 +93,7 @@
                         config.CreatorWallet = document.querySelector('#txtCreatorWallet').value;
                         config.MonetizationMode = document.querySelector('#selectMonetizationMode').value;
                         config.DefaultRatePerSecond = parseFloat(document.querySelector('#txtDefaultRate').value);
+                        config.WebhookSecret = document.querySelector('#txtWebhookSecret').value;
                         config.EnablePaywallOverlay = document.querySelector('#chkEnablePaywallOverlay').checked;
                         config.EnableTipping = document.querySelector('#chkEnableTipping').checked;
 
