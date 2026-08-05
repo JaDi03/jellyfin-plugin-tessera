@@ -1,16 +1,27 @@
 name: Build & Release Jellyfin Plugin
 
+# How to ship a new plugin version (no local tooling, no manual tags):
+#   1. Bump <Version> in Jellyfin.Plugin.Tessera.csproj (e.g. 1.0.46 → 1.0.47)
+#   2. Push the commit to main
+#   3. This workflow creates tag vX.Y.Z, builds the zip, publishes the GitHub Release,
+#      and updates manifest.json for the Jellyfin plugin catalog
+#
+# Commits that do not bump Version are no-ops (tag already exists).
+# Manifest bot commits use [skip ci] and are ignored.
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
 
     steps:
@@ -18,37 +29,51 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve version from tag
+      - name: Read version from csproj
         id: ver
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          else
-            # Manual / workflow_dispatch builds use the csproj Version
-            VERSION=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.Tessera.csproj | head -1)
-          fi
+          set -euo pipefail
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.Tessera.csproj | head -1)
           if [[ -z "$VERSION" ]]; then
-            echo "Could not resolve plugin version" >&2
+            echo "Could not read <Version> from Jellyfin.Plugin.Tessera.csproj" >&2
             exit 1
           fi
+          TAG="v${VERSION}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building plugin version: $VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "csproj Version=$VERSION → $TAG"
+
+      - name: Check whether this version was already released
+        id: check
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $TAG is new — will build and release."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup .NET 8.0 SDK
+        if: steps.check.outputs.should_release == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Build Release Binary
-        run: |
-          # Stamp the assembly version from the git tag so release zip matches the tag
-          # even if someone forgot to bump <Version> in the csproj.
-          dotnet build -c Release -v n -p:Version=${{ env.VERSION }}
+        if: steps.check.outputs.should_release == 'true'
+        run: dotnet build -c Release -v n -p:Version=${{ env.VERSION }}
 
       - name: Package Plugin Zip
+        if: steps.check.outputs.should_release == 'true'
         run: |
+          set -euo pipefail
           mkdir -p package
           DLL=$(find bin/Release -name 'Jellyfin.Plugin.Tessera.dll' | head -1)
           if [[ -z "$DLL" ]]; then
@@ -57,9 +82,8 @@ jobs:
             exit 1
           fi
           cp "$DLL" package/
-          # Jellyfin repository installs expect meta.json alongside the DLL
           python3 - <<'PY'
-          import json, datetime, os, re
+          import json, datetime, os
           version = os.environ["VERSION"]
           version_str = version if version.count(".") >= 3 else version + ".0"
           meta = {
@@ -83,7 +107,7 @@ jobs:
           unzip -l ../Jellyfin.Plugin.Tessera.zip
 
       - name: Calculate Checksums
-        id: checksum
+        if: steps.check.outputs.should_release == 'true'
         run: |
           SHA256_SUM=$(sha256sum Jellyfin.Plugin.Tessera.zip | awk '{ print $1 }')
           MD5_SUM=$(md5sum Jellyfin.Plugin.Tessera.zip | awk '{ print toupper($1) }')
@@ -92,14 +116,34 @@ jobs:
           echo "Calculated SHA256: $SHA256_SUM"
           echo "Calculated MD5: $MD5_SUM"
 
+      - name: Create tag + GitHub Release
+        if: steps.check.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          files: Jellyfin.Plugin.Tessera.zip
+          generate_release_notes: true
+          body: |
+            Automated release build for Jellyfin Tessera Plugin **${{ env.TAG }}**.
+
+            - SHA256: `${{ env.SHA256 }}`
+            - MD5: `${{ env.MD5 }}`
+
+            Install via the Tessera plugin repository manifest, or download the zip and install manually in Jellyfin Dashboard → Plugins.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Update and Push manifest.json
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.check.outputs.should_release == 'true'
         run: |
-          VERSION=${{ env.VERSION }}
+          set -euo pipefail
+          VERSION="${{ env.VERSION }}"
 
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
+          # Stay on main tip so we don't fight with concurrent pushes
           git fetch origin main
           git checkout -B main origin/main
 
@@ -133,21 +177,5 @@ jobs:
           "
 
           git add manifest.json
-          git commit -m "chore: auto-update manifest.json for release ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
+          git commit -m "chore: auto-update manifest.json for release v${VERSION} [skip ci]" || echo "No changes to commit"
           git push origin main
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: Jellyfin.Plugin.Tessera.zip
-          generate_release_notes: true
-          body: |
-            Automated release build for Jellyfin Tessera Plugin **v${{ env.VERSION }}**.
-
-            - SHA256: `${{ env.SHA256 }}`
-            - MD5: `${{ env.MD5 }}`
-
-            Install via the Tessera plugin repository manifest, or download the zip and install manually in Jellyfin Dashboard → Plugins.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
