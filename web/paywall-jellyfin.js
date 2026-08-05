@@ -12,9 +12,14 @@
     const STATE_POLL_MAX = 20;
 
     let paywallInitialized = false;
+    let initInFlight = false;
     let currentItemId = null;
     let currentMode = null;
     let billingActive = false;
+    let attachedVideo = null;
+    let videoAbort = null;
+    let isCleaningUp = false;
+    let lastPlayerPresent = false;
 
     function sleep(ms) {
         return new Promise(function (resolve) { setTimeout(resolve, ms); });
@@ -35,6 +40,32 @@
             return localStorage.getItem('arc_cashier_user_id');
         } catch (_) {
             return null;
+        }
+    }
+
+    /**
+     * True only when Jellyfin's real video OSD / html5 player chrome is present.
+     * Detail-page trailers and backdrop videos must NOT match.
+     */
+    function isVideoPlayerView() {
+        return !!(
+            document.querySelector('.videoOsdBottom')
+            || document.querySelector('#videoOsdPage')
+            || document.querySelector('.htmlVideoPlayerContainer video')
+            || document.querySelector('video.htmlvideoplayer')
+        );
+    }
+
+    function getPlayerVideo() {
+        return document.querySelector(
+            '.htmlVideoPlayerContainer video, video.htmlvideoplayer, #videoOsdPage video, .videoPlayerContainer video'
+        );
+    }
+
+    function setMediaPlaying(isPlaying) {
+        window.arcManualMediaControl = true;
+        if (typeof window.arcSetMediaPlaying === 'function') {
+            window.arcSetMediaPlaying(isPlaying);
         }
     }
 
@@ -100,31 +131,55 @@
     };
 
     async function initPaywallEngine() {
+        if (paywallInitialized || initInFlight) return;
+        if (!isVideoPlayerView()) return;
+
         const deviceId = getDeviceId();
         if (!deviceId) {
-            console.warn('[Tessera] No deviceId — cannot read playback state.');
+            console.warn('[Tessera] No deviceId - cannot read playback state.');
             return;
         }
-
-        const state = await waitForPlaybackState(deviceId);
-        if (!state) {
-            console.warn('[Tessera] No playback state from Jellyfin yet.');
-            return;
-        }
-
-        if (paywallInitialized && currentItemId === state.itemId) return;
 
         const arcCashier = window.ArcCashier;
         if (!arcCashier) return;
 
+        initInFlight = true;
+
+        let state = null;
+        try {
+            state = await waitForPlaybackState(deviceId);
+        } catch (err) {
+            console.warn('[Tessera] playback-state poll failed:', err);
+            initInFlight = false;
+            return;
+        }
+
+        // Player may have closed while we awaited state
+        if (!isVideoPlayerView()) {
+            initInFlight = false;
+            return;
+        }
+
+        if (!state) {
+            console.warn('[Tessera] No playback state from Jellyfin yet.');
+            initInFlight = false;
+            return;
+        }
+
+        if (paywallInitialized && currentItemId === state.itemId) {
+            initInFlight = false;
+            return;
+        }
+
         paywallInitialized = true;
+        initInFlight = false;
         currentItemId = state.itemId;
         currentMode = state.mode === 'free' ? 'free' : 'pay-per-second';
 
         const wallet = window.TESSERA_CREATOR_WALLET || '';
         const rate = window.TESSERA_RATE || 0.0001;
 
-        const videoEl = document.querySelector('video');
+        const videoEl = getPlayerVideo();
         const targetContainer = (videoEl && videoEl.parentNode)
             || document.querySelector('.htmlVideoPlayerContainer, .videoPlayerContainer, #videoPlayerContainer')
             || document.body;
@@ -146,25 +201,92 @@
                 window.arcResetVideoSession(rate);
             }
         }
+
+        if (videoEl) attachVideoListeners(videoEl);
     }
 
-    function teardownUiOnNavigate() {
+    function attachVideoListeners(video) {
+        if (attachedVideo === video) return;
+
+        if (videoAbort) videoAbort.abort();
+        videoAbort = new AbortController();
+        const { signal } = videoAbort;
+        attachedVideo = video;
+        window.arcManualMediaControl = true;
+
+        video.addEventListener('play', function () {
+            if (!isVideoPlayerView()) return;
+            setMediaPlaying(true);
+
+            if (currentMode === 'free') return;
+            if (document.body.classList.contains('arc-locked')) return;
+            if (billingActive) return;
+
+            const deviceId = getDeviceId();
+            const sessionId = getPaywallUserId();
+            if (!deviceId || !sessionId || !sessionId.startsWith('arc_')) return;
+            registerViewer(deviceId, sessionId).then(function () {
+                return billingStart(deviceId, sessionId);
+            }).then(function (ok) {
+                if (ok) billingActive = true;
+            }).catch(function () { /* best effort */ });
+        }, { signal: signal });
+
+        video.addEventListener('pause', function () {
+            setMediaPlaying(false);
+            if (currentMode === 'pay-per-second') {
+                const deviceId = getDeviceId();
+                const sessionId = getPaywallUserId();
+                if (deviceId && sessionId) billingStop(deviceId, sessionId);
+            }
+        }, { signal: signal });
+
+        video.addEventListener('ended', function () {
+            setMediaPlaying(false);
+            if (currentMode === 'pay-per-second') {
+                const deviceId = getDeviceId();
+                const sessionId = getPaywallUserId();
+                if (deviceId && sessionId) billingStop(deviceId, sessionId);
+            }
+        }, { signal: signal });
+    }
+
+    async function teardownUiOnNavigate() {
+        if (isCleaningUp) return;
+        isCleaningUp = true;
+
+        setMediaPlaying(false);
+
         const deviceId = getDeviceId();
         const sessionId = getPaywallUserId();
         if (deviceId && sessionId && currentMode === 'pay-per-second') {
-            billingStop(deviceId, sessionId);
+            await billingStop(deviceId, sessionId);
         }
 
+        if (videoAbort) {
+            videoAbort.abort();
+            videoAbort = null;
+        }
+        attachedVideo = null;
+        currentItemId = null;
+        currentMode = null;
+        paywallInitialized = false;
+        initInFlight = false;
+        billingActive = false;
+
         if (typeof window.arcTeardownOnNavigate === 'function') {
-            window.arcTeardownOnNavigate();
+            await window.arcTeardownOnNavigate();
         } else {
+            const sm = document.getElementById('arc-session-manager');
+            if (sm) sm.remove();
+            const tip = document.getElementById('arc-tip-btn-container');
+            if (tip) tip.remove();
+            const overlay = document.getElementById('arc-paywall-overlay');
+            if (overlay) overlay.remove();
             document.body.classList.remove('arc-locked');
         }
 
-        paywallInitialized = false;
-        currentItemId = null;
-        currentMode = null;
-        billingActive = false;
+        isCleaningUp = false;
     }
 
     if (!document.getElementById('tessera-paywall-bundle')) {
@@ -172,32 +294,52 @@
         bundleScript.id = 'tessera-paywall-bundle';
         bundleScript.src = pluginRoute + '/assets/paywall.bundle.js';
         bundleScript.onload = function () {
-            if (document.querySelector('video')) initPaywallEngine();
+            if (isVideoPlayerView()) initPaywallEngine();
         };
         document.head.appendChild(bundleScript);
     }
 
-    window.addEventListener('hashchange', teardownUiOnNavigate);
-    window.addEventListener('pagehide', teardownUiOnNavigate);
+    window.addEventListener('hashchange', function () {
+        teardownUiOnNavigate();
+    });
+    window.addEventListener('popstate', function () {
+        teardownUiOnNavigate();
+    });
+    window.addEventListener('pagehide', function () {
+        teardownUiOnNavigate();
+    });
 
+    // Re-init only for the real player; never for detail/preview trailers.
     document.addEventListener('play', function (e) {
-        if (e.target && e.target.tagName === 'VIDEO') {
-            initPaywallEngine();
-        }
+        if (!e.target || e.target.tagName !== 'VIDEO') return;
+        if (!isVideoPlayerView()) return;
+        initPaywallEngine();
+        if (e.target !== attachedVideo) attachVideoListeners(e.target);
     }, true);
 
     let mutationScheduled = false;
-    const observer = new MutationObserver(function () {
+    function handleDomMutations() {
         if (mutationScheduled) return;
         mutationScheduled = true;
         window.requestAnimationFrame(function () {
             mutationScheduled = false;
-            if (document.querySelector('video') && !paywallInitialized) {
+            const playerPresent = isVideoPlayerView();
+
+            if (lastPlayerPresent && !playerPresent) {
+                teardownUiOnNavigate();
+            } else if (playerPresent && !paywallInitialized && !initInFlight) {
                 initPaywallEngine();
+            } else if (playerPresent && paywallInitialized) {
+                const video = getPlayerVideo();
+                if (video && video !== attachedVideo) attachVideoListeners(video);
             }
+
+            lastPlayerPresent = playerPresent;
         });
-    });
+    }
+
+    const observer = new MutationObserver(handleDomMutations);
     observer.observe(document.body, { childList: true, subtree: true });
 
-    console.log('[Tessera] Client loaded — mode from Jellyfin PlaybackStart via /playback-state');
+    console.log('[Tessera] Client loaded - mode from Jellyfin PlaybackStart via /playback-state');
 })();

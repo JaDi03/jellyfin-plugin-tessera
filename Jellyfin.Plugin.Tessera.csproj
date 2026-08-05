@@ -5,7 +5,7 @@
     <AssemblyTitle>Jellyfin.Plugin.Tessera</AssemblyTitle>
     <Description>Per-second streaming payments and native tipping plugin for Jellyfin, powered by Tessera and Circle x402 on Arc Network.</Description>
     <Copyright>Copyright © 2026 Tessera Project</Copyright>
-    <Version>1.0.50</Version>
+    <Version>1.0.51</Version>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
