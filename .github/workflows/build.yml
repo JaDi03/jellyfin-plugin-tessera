@@ -19,53 +19,101 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            # Manual / workflow_dispatch builds use the csproj Version
+            VERSION=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.Tessera.csproj | head -1)
+          fi
+          if [[ -z "$VERSION" ]]; then
+            echo "Could not resolve plugin version" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building plugin version: $VERSION"
+
       - name: Setup .NET 8.0 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Build Release Binary
-        run: dotnet build -c Release -v n
+        run: |
+          # Stamp the assembly version from the git tag so release zip matches the tag
+          # even if someone forgot to bump <Version> in the csproj.
+          dotnet build -c Release -v n -p:Version=${{ env.VERSION }}
 
       - name: Package Plugin Zip
         run: |
           mkdir -p package
-          cp bin/Release/net8.0/Jellyfin.Plugin.Tessera.dll package/
+          DLL=$(find bin/Release -name 'Jellyfin.Plugin.Tessera.dll' | head -1)
+          if [[ -z "$DLL" ]]; then
+            echo "Build output DLL not found" >&2
+            find bin -type f -name '*.dll' || true
+            exit 1
+          fi
+          cp "$DLL" package/
+          # Jellyfin repository installs expect meta.json alongside the DLL
+          python3 - <<'PY'
+          import json, datetime, os, re
+          version = os.environ["VERSION"]
+          version_str = version if version.count(".") >= 3 else version + ".0"
+          meta = {
+              "guid": "f94d1b82-7e4a-4c28-9d10-8b43f01c9b88",
+              "name": "Tessera",
+              "description": "Per-second streaming payments and tipping for Jellyfin, powered by Tessera.",
+              "overview": "Let your viewers support your Jellyfin server with per-second USDC micropayments or tips.",
+              "owner": "Tessera Project",
+              "category": "General",
+              "targetAbi": "10.9.0.0",
+              "version": version_str,
+              "changelog": f"Automated release for version {version_str}",
+              "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+          }
+          with open("package/meta.json", "w", encoding="utf-8") as f:
+              json.dump(meta, f, indent=2)
+          print("Wrote package/meta.json:", meta)
+          PY
           cd package
           zip -r ../Jellyfin.Plugin.Tessera.zip .
+          unzip -l ../Jellyfin.Plugin.Tessera.zip
 
       - name: Calculate Checksums
         id: checksum
         run: |
           SHA256_SUM=$(sha256sum Jellyfin.Plugin.Tessera.zip | awk '{ print $1 }')
           MD5_SUM=$(md5sum Jellyfin.Plugin.Tessera.zip | awk '{ print toupper($1) }')
-          echo "SHA256=$SHA256_SUM" >> $GITHUB_ENV
-          echo "MD5=$MD5_SUM" >> $GITHUB_ENV
+          echo "SHA256=$SHA256_SUM" >> "$GITHUB_ENV"
+          echo "MD5=$MD5_SUM" >> "$GITHUB_ENV"
           echo "Calculated SHA256: $SHA256_SUM"
           echo "Calculated MD5: $MD5_SUM"
 
       - name: Update and Push manifest.json
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          
+          VERSION=${{ env.VERSION }}
+
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
+
           git fetch origin main
           git checkout -B main origin/main
-          
+
           python3 -c "
           import json, datetime
-          
+
           manifest_path = 'manifest.json'
           with open(manifest_path, 'r', encoding='utf-8') as f:
               data = json.load(f)
-              
+
           version_str = '${VERSION}'
           if version_str.count('.') == 2:
               version_str += '.0'
-              
+
           new_entry = {
               'version': version_str,
               'changelog': 'Automated release for version ' + version_str,
@@ -74,7 +122,7 @@ jobs:
               'checksum': '${{ env.MD5 }}',
               'timestamp': datetime.datetime.utcnow().isoformat() + 'Z'
           }
-          
+
           if not any(v['version'] == version_str for v in data[0]['versions']):
               data[0]['versions'].insert(0, new_entry)
               with open(manifest_path, 'w', encoding='utf-8') as f:
@@ -83,19 +131,23 @@ jobs:
           else:
               print('Version already exists in manifest, skipping append.')
           "
-          
+
           git add manifest.json
           git commit -m "chore: auto-update manifest.json for release ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
           git push origin main
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: Jellyfin.Plugin.Tessera.zip
+          generate_release_notes: true
           body: |
-            Automated release build for Jellyfin Tessera Plugin.
-            SHA256 Checksum: `${{ env.SHA256 }}`
-            MD5 Checksum: `${{ env.MD5 }}`
+            Automated release build for Jellyfin Tessera Plugin **v${{ env.VERSION }}**.
+
+            - SHA256: `${{ env.SHA256 }}`
+            - MD5: `${{ env.MD5 }}`
+
+            Install via the Tessera plugin repository manifest, or download the zip and install manually in Jellyfin Dashboard → Plugins.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
