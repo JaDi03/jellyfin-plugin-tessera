@@ -65,11 +65,63 @@
                     </button>
                 </div>
             </form>
+
+            <div id="tesseraCreatorEarningsMount" class="inputContainer" style="margin-top: 1.5em;">
+                <h3 class="sectionTitle">Creator Earnings</h3>
+                <div class="fieldDescription">Gateway balance for the creator wallet above. Withdraw with MetaMask (Arc Testnet). Requires Tessera sidecar with creator withdraw routes.</div>
+                <div id="tesseraCreatorEarningsHost"></div>
+            </div>
         </div>
 
         <script type="text/javascript">
             (function () {
                 const pluginId = 'f94d1b82-7e4a-4c28-9d10-8b43f01c9b88';
+                const pluginRoute = '/plugins/tessera';
+
+                function ensureCreatorAssets(onReady) {
+                    if (!document.getElementById('tessera-creator-earnings-css')) {
+                        const link = document.createElement('link');
+                        link.id = 'tessera-creator-earnings-css';
+                        link.rel = 'stylesheet';
+                        link.href = pluginRoute + '/assets/creator-earnings.css';
+                        document.head.appendChild(link);
+                    }
+                    if (window.ArcCashier && typeof window.ArcCashier.initCreatorEarnings === 'function') {
+                        onReady();
+                        return;
+                    }
+                    let script = document.getElementById('tessera-paywall-bundle');
+                    if (!script) {
+                        script = document.createElement('script');
+                        script.id = 'tessera-paywall-bundle';
+                        script.src = pluginRoute + '/assets/paywall.bundle.js';
+                        document.head.appendChild(script);
+                    }
+                    script.addEventListener('load', onReady);
+                    if (window.ArcCashier) onReady();
+                }
+
+                function mountCreatorEarnings(wallet) {
+                    const host = document.getElementById('tesseraCreatorEarningsHost');
+                    if (!host) return;
+                    host.innerHTML = '';
+                    if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet.trim())) {
+                        host.innerHTML = '<p class="fieldDescription">Save a valid creator wallet (0x...) to load earnings.</p>';
+                        return;
+                    }
+                    ensureCreatorAssets(function () {
+                        if (!window.ArcCashier || typeof window.ArcCashier.initCreatorEarnings !== 'function') {
+                            host.innerHTML = '<p class="fieldDescription">Paywall bundle not loaded yet. Refresh after sidecar assets are reachable.</p>';
+                            return;
+                        }
+                        window.ArcCashier.initCreatorEarnings({
+                            wallet: wallet.trim(),
+                            apiBase: pluginRoute,
+                            mount: host,
+                            title: 'Creator Earnings',
+                        });
+                    });
+                }
 
                 document.querySelector('#tesseraConfigPage').addEventListener('pageshow', function () {
                     Dashboard.showLoadingMsg();
@@ -82,6 +134,7 @@
                         document.querySelector('#chkEnablePaywallOverlay').checked = config.EnablePaywallOverlay !== false;
                         document.querySelector('#chkEnableTipping').checked = config.EnableTipping !== false;
                         Dashboard.hideLoadingMsg();
+                        mountCreatorEarnings(config.CreatorWallet || '');
                     });
                 });
 
@@ -100,6 +153,7 @@
                         ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                             Dashboard.hideLoadingMsg();
                             Dashboard.processPluginConfigurationUpdateResult(result);
+                            mountCreatorEarnings(config.CreatorWallet || '');
                         });
                     });
                 });
