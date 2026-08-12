@@ -15,7 +15,7 @@
                 <div class="inputContainer">
                     <label class="inputLabel" for="txtTesseraServerUrl">Tessera Sidecar API URL:</label>
                     <input id="txtTesseraServerUrl" name="txtTesseraServerUrl" type="text" is="emby-input" required />
-                    <div class="fieldDescription">The public URL of your running Tessera sidecar (e.g. http://localhost:7878 or https://tessera.yourdomain.com).</div>
+                    <div class="fieldDescription">HTTP origin where <strong>this Jellyfin server</strong> reaches Tessera (not your public Jellyfin URL). Same host: http://127.0.0.1:7878. Jellyfin in Docker / Tessera on host: often http://172.17.0.1:7878. Verify with curl http://HOST:7878/health.</div>
                 </div>
 
                 <div class="inputContainer">
@@ -40,9 +40,9 @@
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel" for="txtWebhookSecret">Tessera Connector Webhook Secret:</label>
+                    <label class="inputLabel" for="txtWebhookSecret">Tessera Ingest Secret:</label>
                     <input id="txtWebhookSecret" name="txtWebhookSecret" type="password" is="emby-input" autocomplete="off" />
-                    <div class="fieldDescription">Must match the sidecar env <code>TESSERA_CONNECTOR_SECRET_JELLYFIN</code>. Required for billing-start / billing-stop.</div>
+                    <div class="fieldDescription">Must equal sidecar <code>TESSERA_INGEST_SECRET</code>. Required for sessions/start and sessions/stop.</div>
                 </div>
 
                 <div class="checkboxContainer checkboxContainer-withLayout">

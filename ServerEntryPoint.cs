@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -14,9 +16,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Tessera
 {
     /// <summary>
-    /// Listens to native Jellyfin ISessionManager playback events.
-    /// Publishes per-device mode (from Item.Tags) for the browser UI and relays
-    /// paid PlaybackStart/Stop to Tessera using arc_cashier_user_id when registered.
+    /// Publishes per-device playback mode and calls Tessera sessions/start|stop when a viewer id is registered.
     /// </summary>
     public class ServerEntryPoint : IHostedService
     {
@@ -90,19 +90,23 @@ namespace Jellyfin.Plugin.Tessera
                     return;
                 }
 
-                _ = RelayWebhookAsync(new
-                {
-                    NotificationType = "PlaybackStart",
-                    PlaySessionId = tesseraUserId,
-                    Id = e.Item.Id.ToString("N"),
-                    ItemId = e.Item.Id.ToString("N"),
-                    DeviceId = e.DeviceId,
-                    UserId = tesseraUserId,
-                    Item = new { Name = e.Item.Name ?? string.Empty, Tags = tags },
-                    ratePerSecond = config?.DefaultRatePerSecond ?? 0.0001,
-                    creatorWallet = config?.CreatorWallet ?? string.Empty,
-                    tesseraMode = mode,
-                });
+                var rate = (config?.DefaultRatePerSecond ?? 0.0001).ToString(CultureInfo.InvariantCulture);
+                var payout = config?.CreatorWallet ?? string.Empty;
+                _ = SendSignedIngestAsync(
+                    "/api/core/v1/sessions/start",
+                    new
+                    {
+                        userId = tesseraUserId,
+                        resourceId = e.Item.Id.ToString("N"),
+                        ratePerSecond = rate,
+                        payoutAddress = payout,
+                        metadata = new Dictionary<string, string>
+                        {
+                            ["itemName"] = e.Item.Name ?? string.Empty,
+                            ["deviceId"] = e.DeviceId,
+                            ["tesseraMode"] = mode,
+                        },
+                    });
             }
             catch (Exception ex)
             {
@@ -120,19 +124,14 @@ namespace Jellyfin.Plugin.Tessera
                 var wasFree = string.Equals(prior?.Mode, "free", StringComparison.OrdinalIgnoreCase);
                 PlaybackStateService.Clear(e.DeviceId);
 
-                // Free / tip content never started a Tessera billing webhook on PlaybackStart.
                 if (wasFree) return;
 
                 var tesseraUserId = ViewerSessionRegistry.GetTesseraUserId(e.DeviceId);
                 if (string.IsNullOrEmpty(tesseraUserId)) return;
 
-                _ = RelayWebhookAsync(new
-                {
-                    NotificationType = "PlaybackStop",
-                    PlaySessionId = tesseraUserId,
-                    DeviceId = e.DeviceId,
-                    UserId = tesseraUserId,
-                });
+                _ = SendSignedIngestAsync(
+                    "/api/core/v1/sessions/stop",
+                    new { userId = tesseraUserId });
             }
             catch (Exception ex)
             {
@@ -140,20 +139,20 @@ namespace Jellyfin.Plugin.Tessera
             }
         }
 
-        private async Task RelayWebhookAsync(object payload)
+        private async Task SendSignedIngestAsync(string path, object payload)
         {
             var config = Plugin.Instance?.Configuration;
             if (string.IsNullOrWhiteSpace(config?.WebhookSecret))
             {
-                _logger.LogWarning("[Tessera] WebhookSecret not configured — skipping Tessera relay.");
+                _logger.LogWarning("[Tessera] WebhookSecret not configured — skipping ingest.");
                 return;
             }
 
             var serverUrl = (config.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/');
-            var webhookUrl = $"{serverUrl}/api/connectors/jellyfin/webhook";
+            var url = $"{serverUrl}{path}";
             var json = JsonSerializer.Serialize(payload);
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, webhookUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
             request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
@@ -169,7 +168,7 @@ namespace Jellyfin.Plugin.Tessera
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("[Tessera] Webhook HTTP {Status}: {Body}", (int)response.StatusCode, body);
+                _logger.LogWarning("[Tessera] Ingest HTTP {Status}: {Body}", (int)response.StatusCode, body);
             }
         }
     }

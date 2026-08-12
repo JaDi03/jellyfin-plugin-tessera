@@ -95,29 +95,35 @@ namespace Jellyfin.Plugin.Tessera
                 return StatusCode(500, new { error = "WebhookSecret not configured" });
             }
 
+            if (string.IsNullOrWhiteSpace(config.CreatorWallet))
+            {
+                return StatusCode(400, new { error = "CreatorWallet not configured" });
+            }
+
             ViewerSessionRegistry.Register(body.DeviceId, body.SessionId);
 
+            var rate = config.DefaultRatePerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var payload = new
             {
-                NotificationType = "PlaybackStart",
-                PlaySessionId = body.SessionId,
-                Id = state.ItemId,
-                ItemId = state.ItemId,
-                DeviceId = body.DeviceId,
-                UserId = body.SessionId,
-                Item = new { Name = state.ItemName, Tags = state.Tags },
-                ratePerSecond = config.DefaultRatePerSecond,
-                creatorWallet = config.CreatorWallet ?? string.Empty,
-                tesseraMode = state.Mode,
+                userId = body.SessionId,
+                resourceId = state.ItemId,
+                ratePerSecond = rate,
+                payoutAddress = config.CreatorWallet,
+                metadata = new System.Collections.Generic.Dictionary<string, string>
+                {
+                    ["itemName"] = state.ItemName ?? string.Empty,
+                    ["deviceId"] = body.DeviceId,
+                    ["tesseraMode"] = state.Mode,
+                },
             };
 
             try
             {
-                await SendSignedWebhookAsync(
-                    $"{(config.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/')}/api/connectors/jellyfin/webhook",
+                await SendSignedIngestAsync(
+                    $"{(config.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/')}/api/core/v1/sessions/start",
                     payload,
                     config.WebhookSecret);
-                return Ok(new { status = "ok", eventName = "PlaybackStart" });
+                return Ok(new { status = "ok", eventName = "session_started" });
             }
             catch (Exception ex)
             {
@@ -139,21 +145,15 @@ namespace Jellyfin.Plugin.Tessera
                 return StatusCode(500, new { error = "WebhookSecret not configured" });
             }
 
-            var payload = new
-            {
-                NotificationType = "PlaybackStop",
-                PlaySessionId = body.SessionId,
-                DeviceId = body.DeviceId,
-                UserId = body.SessionId,
-            };
+            var payload = new { userId = body.SessionId };
 
             try
             {
-                await SendSignedWebhookAsync(
-                    $"{(config.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/')}/api/connectors/jellyfin/webhook",
+                await SendSignedIngestAsync(
+                    $"{(config.TesseraServerUrl ?? "http://tessera-backend:7878").TrimEnd('/')}/api/core/v1/sessions/stop",
                     payload,
                     config.WebhookSecret);
-                return Ok(new { status = "ok", eventName = "PlaybackStop" });
+                return Ok(new { status = "ok", eventName = "session_stopped" });
             }
             catch (Exception ex)
             {
@@ -197,7 +197,7 @@ namespace Jellyfin.Plugin.Tessera
         {
             var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://tessera-backend:7878";
             serverUrl = serverUrl.TrimEnd('/');
-            string url = $"{serverUrl}/jellyfin-assets/{file}";
+            string url = $"{serverUrl}/assets/{file}";
 
             try
             {
@@ -232,7 +232,7 @@ namespace Jellyfin.Plugin.Tessera
         {
             var serverUrl = Plugin.Instance?.Configuration?.TesseraServerUrl ?? "http://tessera-backend:7878";
             serverUrl = serverUrl.TrimEnd('/');
-            string url = $"{serverUrl}/jellyfin-assets/{filename}";
+            string url = $"{serverUrl}/assets/{filename}";
 
             try
             {
@@ -304,7 +304,7 @@ namespace Jellyfin.Plugin.Tessera
             }
         }
 
-        private static async System.Threading.Tasks.Task SendSignedWebhookAsync(string url, object payload, string? secret)
+        private static async System.Threading.Tasks.Task SendSignedIngestAsync(string url, object payload, string? secret)
         {
             var json = JsonSerializer.Serialize(payload);
             using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url);
@@ -328,7 +328,7 @@ namespace Jellyfin.Plugin.Tessera
             if (!response.IsSuccessStatusCode)
             {
                 var errBody = await response.Content.ReadAsStringAsync();
-                throw new InvalidOperationException($"Webhook HTTP {(int)response.StatusCode}: {errBody}");
+                throw new InvalidOperationException($"Ingest HTTP {(int)response.StatusCode}: {errBody}");
             }
         }
 
