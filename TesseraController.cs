@@ -56,7 +56,7 @@ namespace Jellyfin.Plugin.Tessera
                 return BadRequest(new { error = "Missing deviceId or sessionId" });
             }
 
-            if (!body.SessionId.StartsWith("arc_", StringComparison.Ordinal))
+            if (!ViewerSessionRegistry.IsValidTesseraUserId(body.SessionId))
             {
                 return BadRequest(new { error = "Invalid sessionId" });
             }
@@ -73,7 +73,7 @@ namespace Jellyfin.Plugin.Tessera
                 return BadRequest(new { error = "Missing deviceId or sessionId" });
             }
 
-            if (!body.SessionId.StartsWith("arc_", StringComparison.Ordinal))
+            if (!ViewerSessionRegistry.IsValidTesseraUserId(body.SessionId))
             {
                 return BadRequest(new { error = "Invalid sessionId" });
             }

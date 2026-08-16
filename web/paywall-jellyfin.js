@@ -81,6 +81,13 @@
         }
     }
 
+    /** Same prefixes as Tessera sidecar isValidViewerUserId. */
+    function isValidTesseraUserId(id) {
+        if (!id || typeof id !== 'string') return false;
+        if (id.length < 7 || id.length > 256) return false;
+        return id.startsWith('email:') || id.startsWith('social:') || id.startsWith('arc_');
+    }
+
     /**
      * True only when Jellyfin's real video OSD / html5 player chrome is present.
      * Detail-page trailers and backdrop videos must NOT match.
@@ -92,6 +99,26 @@
             || document.querySelector('.htmlVideoPlayerContainer video')
             || document.querySelector('video.htmlvideoplayer')
         );
+    }
+
+    /** Circle OAuth returns on location.hash; do not teardown while that resume is in flight. */
+    function isSocialLoginReturn() {
+        try {
+            if (document.getElementById('arc-social-resume-splash')) return true;
+            if (sessionStorage.getItem('tessera_opaque_cover')) return true;
+            const pending = sessionStorage.getItem('tessera_social_login_pending');
+            const hash = window.location.hash || '';
+            const oauthHash = /^#(?:[a-zA-Z0-9-_.%]+=[^&]*&)*[a-zA-Z0-9-_.%]+=[^&]*$/.test(hash);
+            return Boolean(pending && oauthHash);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function hideSocialResumeSplash() {
+        const el = document.getElementById('arc-social-resume-splash');
+        if (el) el.remove();
+        try { sessionStorage.removeItem('tessera_opaque_cover'); } catch (_) { /* ignore */ }
     }
 
     function getPlayerVideo() {
@@ -131,12 +158,17 @@
     }
 
     async function registerViewer(deviceId, sessionId) {
-        await fetch(pluginRoute + '/register-viewer', {
+        const res = await fetch(pluginRoute + '/register-viewer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
             body: JSON.stringify({ deviceId: deviceId, sessionId: sessionId }),
         });
+        if (!res.ok) {
+            console.error('[Tessera] register-viewer HTTP ' + res.status);
+            return false;
+        }
+        return true;
     }
 
     async function billingStart(deviceId, sessionId) {
@@ -146,7 +178,11 @@
             credentials: 'same-origin',
             body: JSON.stringify({ deviceId: deviceId, sessionId: sessionId }),
         });
-        return res.ok;
+        if (!res.ok) {
+            console.error('[Tessera] billing-start HTTP ' + res.status);
+            return false;
+        }
+        return true;
     }
 
     async function billingStop(deviceId, sessionId) {
@@ -165,9 +201,10 @@
         if (currentMode !== 'pay-per-second') return;
         const deviceId = getDeviceId();
         const sessionId = getPaywallUserId();
-        if (!deviceId || !sessionId || !sessionId.startsWith('arc_')) return;
+        if (!deviceId || !isValidTesseraUserId(sessionId)) return;
         if (billingActive) return;
-        await registerViewer(deviceId, sessionId);
+        const registered = await registerViewer(deviceId, sessionId);
+        if (!registered) return;
         const ok = await billingStart(deviceId, sessionId);
         if (ok) billingActive = true;
     };
@@ -209,6 +246,7 @@
             console.warn('[Tessera] No playback state from Jellyfin yet.');
             clearModePending();
             initInFlight = false;
+            if (!isSocialLoginReturn()) hideSocialResumeSplash();
             return;
         }
 
@@ -239,7 +277,7 @@
                 arcCashier.initTipMode(wallet, '0.10');
             }
             const sessionId = getPaywallUserId();
-            if (sessionId) await registerViewer(deviceId, sessionId);
+            if (isValidTesseraUserId(sessionId)) await registerViewer(deviceId, sessionId);
         } else {
             if (typeof arcCashier.initPaywall === 'function') {
                 arcCashier.initPaywall(targetContainer);
@@ -273,8 +311,9 @@
 
             const deviceId = getDeviceId();
             const sessionId = getPaywallUserId();
-            if (!deviceId || !sessionId || !sessionId.startsWith('arc_')) return;
-            registerViewer(deviceId, sessionId).then(function () {
+            if (!deviceId || !isValidTesseraUserId(sessionId)) return;
+            registerViewer(deviceId, sessionId).then(function (registered) {
+                if (!registered) return false;
                 return billingStart(deviceId, sessionId);
             }).then(function (ok) {
                 if (ok) billingActive = true;
@@ -283,19 +322,19 @@
 
         video.addEventListener('pause', function () {
             setMediaPlaying(false);
-            if (currentMode === 'pay-per-second') {
+            if (currentMode === 'pay-per-second' && billingActive) {
                 const deviceId = getDeviceId();
                 const sessionId = getPaywallUserId();
-                if (deviceId && sessionId) billingStop(deviceId, sessionId);
+                if (deviceId && isValidTesseraUserId(sessionId)) billingStop(deviceId, sessionId);
             }
         }, { signal: signal });
 
         video.addEventListener('ended', function () {
             setMediaPlaying(false);
-            if (currentMode === 'pay-per-second') {
+            if (currentMode === 'pay-per-second' && billingActive) {
                 const deviceId = getDeviceId();
                 const sessionId = getPaywallUserId();
-                if (deviceId && sessionId) billingStop(deviceId, sessionId);
+                if (deviceId && isValidTesseraUserId(sessionId)) billingStop(deviceId, sessionId);
             }
         }, { signal: signal });
     }
@@ -308,7 +347,7 @@
 
         const deviceId = getDeviceId();
         const sessionId = getPaywallUserId();
-        if (deviceId && sessionId && currentMode === 'pay-per-second') {
+        if (deviceId && isValidTesseraUserId(sessionId) && currentMode === 'pay-per-second' && billingActive) {
             await billingStop(deviceId, sessionId);
         }
 
@@ -350,9 +389,11 @@
     }
 
     window.addEventListener('hashchange', function () {
+        if (isSocialLoginReturn()) return;
         teardownUiOnNavigate();
     });
     window.addEventListener('popstate', function () {
+        if (isSocialLoginReturn()) return;
         teardownUiOnNavigate();
     });
     window.addEventListener('pagehide', function () {
@@ -381,7 +422,7 @@
             const playerPresent = isVideoPlayerView();
 
             if (lastPlayerPresent && !playerPresent) {
-                teardownUiOnNavigate();
+                if (!isSocialLoginReturn()) teardownUiOnNavigate();
             } else if (playerPresent && !paywallInitialized && !initInFlight) {
                 initPaywallEngine();
             } else if (playerPresent && paywallInitialized) {
