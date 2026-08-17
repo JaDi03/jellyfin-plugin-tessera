@@ -169,11 +169,15 @@ jobs:
 
           if not any(v['version'] == version_str for v in data[0]['versions']):
               data[0]['versions'].insert(0, new_entry)
-              with open(manifest_path, 'w', encoding='utf-8') as f:
-                  json.dump(data, f, indent=2)
-              print(f'Updated manifest with version {version_str}')
+              print('Inserted version ' + version_str)
           else:
-              print('Version already exists in manifest, skipping append.')
+              print('Version already exists in manifest: ' + version_str)
+          # Keep the catalog short (latest N only). Older zips remain on GitHub Releases.
+          data[0]['versions'] = data[0]['versions'][:5]
+          with open(manifest_path, 'w', encoding='utf-8') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          print('Kept %d manifest version entries' % len(data[0]['versions']))
           "
 
           git add manifest.json
